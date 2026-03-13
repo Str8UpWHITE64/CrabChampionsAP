@@ -113,7 +113,7 @@ class AbilityForCompletion(Range):
     display_name = "Abilities for Completion"
     range_start = 0
     range_end = 7
-    default = 0
+    default = 3
 
 
 class AbilitiesInPool(Range):
