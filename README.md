@@ -35,8 +35,9 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 
 1. Download [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip) and unzip it.
 2. Navigate to Steam Library > Right-click Crab Champions > Properties > Local Files > Browse, then go to ``CrabChampions\Binaries\Win64`` and copy the contents of the UE4SS zip folder into the game's Win64 directory.
-3. Download the CrabChampionsAP.zip from the latest release and unzip it. Copy the `CrabChampionsAP` folder into the `Mods` directory from the previous step.
-4. Edit `Scripts/ap_config.json` with your Archipelago server address, slot name, and password:
+3. Edit `UE4SS.ini` and set `ConsoleEnabled = 1` to enable the game's console, which will show you Archipelago connection status and checks received.
+4. Download the CrabChampionsAP.zip from the latest release and unzip it. Copy the `CrabChampionsAP` folder into the `Mods` directory from the previous step.
+5. Edit `Scripts/ap_config.json` with your Archipelago server address, slot name, and password:
    ```json
    {
      "address": "localhost:38281",
@@ -44,12 +45,12 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
      "password": ""
    }
    ```
-5. Under the `Mods` directory, open `mods.txt` and add `CrabChampionsAP` to the list of mods to load like this:
+6. Under the `Mods` directory, open `mods.txt` and add `CrabChampionsAP` to the list of mods to load like this:
    ```
    CrabChampionsAP : 1
    ```
-6. Download the lau-apclient 7z from [here](https://github.com/black-sliver/lua-apclientpp/releases/download/v0.6.4/lua54.7z), extract it, and copy the lua-apclientpp.dll file from the `lua54\lua54-clang64-static` folder and place it in the AP folder under `CrabChampionsAP\Scripts\AP`.
-6. Launch the game!  You will automatically connect to the server after a few seconds at the lobby.  You will see output in the console window that opens along with the game.
+7. Download the lau-apclient 7z from [here](https://github.com/black-sliver/lua-apclientpp/releases/download/v0.6.4/lua54.7z), extract it, and copy the lua-apclientpp.dll file from the `lua54\lua54-clang64-static` folder and place it in the AP folder under `CrabChampionsAP\Scripts\AP`.
+8. Launch the game!  You will automatically connect to the server after a few seconds at the lobby.  You will see output in the console window that opens along with the game.
 
 ## Configuration Options
 
