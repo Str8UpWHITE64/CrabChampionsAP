@@ -19,6 +19,7 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 
 - [Crab Champions](https://store.steampowered.com/app/774801/Crab_Champions/)
 - [UE4SS v3.0.1](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/v3.0.1)
+- [lua-apclient](github.com/black-sliver/lua-apclientpp/releases/tag/v0.6.4)
 - [Archipelago](https://archipelago.gg/) v0.6.4+
 
 ## Installation
@@ -47,7 +48,8 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
    ```
    CrabChampionsAP : 1
    ```
-6. Launch the game!  You will automatically connect to the server after a few seconds at the lobby.
+6. Download the lau-apclient 7z from [here](https://github.com/black-sliver/lua-apclientpp/releases/download/v0.6.4/lua54.7z), extract it, and copy the lua-apclientpp.dll file from the `lua54\lua54-clang64-static` folder and place it in the AP folder under `CrabChampionsAP\Scripts\AP`.
+6. Launch the game!  You will automatically connect to the server after a few seconds at the lobby.  You will see output in the console window that opens along with the game.
 
 ## Configuration Options
 
@@ -84,15 +86,15 @@ These options are set in your Archipelago YAML configuration file:
 
 ## Difficulty Ranks
 
-| Rank | Modifier Level |
-|------|----------------|
-| Bronze | 0              |
-| Silver | 1              |
-| Gold | 2–3            |
-| Sapphire | 4–5            |
-| Emerald | 6–7            |
-| Ruby | 8–9            |
-| Diamond | 10–15          |
+| Rank      | Modifier Level |
+|-----------|----------------|
+| Bronze    | 0              |
+| Silver    | 1              |
+| Gold      | 2–3            |
+| Sapphire  | 4–5            |
+| Emerald   | 6–7            |
+| Ruby      | 8–9            |
+| Diamond   | 10–15          |
 | Prismatic | 16+            |
 
 ## Locations
