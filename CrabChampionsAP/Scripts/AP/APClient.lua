@@ -76,7 +76,7 @@ Client.STATUS_GOAL     = 30
 ---@return boolean success
 function Client:init(config_path)
     -- Load config (pure Lua, no DLL needed)
-    config_path = config_path or "Mods/ArchipelagoMod/Scripts/ap_config.json"
+    config_path = config_path or "Mods/CrabChampionsAP/Scripts/ap_config.json"
     self._config_path = config_path
     local config = APConfig.load(config_path)
 
