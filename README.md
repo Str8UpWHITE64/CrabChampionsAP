@@ -35,7 +35,7 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 
 1. Download [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip) and unzip it.
 2. Navigate to Steam Library > Right-click Crab Champions > Properties > Local Files > Browse, then go to ``CrabChampions\Binaries\Win64`` and copy the contents of the UE4SS zip folder into the game's Win64 directory.
-3. Edit `UE4SS.ini` and set `ConsoleEnabled = 1` to enable the game's console, which will show you Archipelago connection status and checks received.
+3. Edit `UE4SS-settings.ini` and set `ConsoleEnabled = 1` to enable the game's console, which will show you Archipelago connection status and checks received.
 4. Download the CrabChampionsAP.zip from the latest release and unzip it. Copy the `CrabChampionsAP` folder into the `Mods` directory from the previous step.
 5. Edit `Scripts/ap_config.json` with your Archipelago server address, slot name, and password:
    ```json
