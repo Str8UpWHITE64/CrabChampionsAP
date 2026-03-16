@@ -183,6 +183,67 @@ end
 -- Public API
 -- ---------------------------------------------------------------
 
+--- Check if all victory conditions are met and send victory if so.
+--- Can be called at any time (e.g. on reconnect or after a run).
+function M.check_victory()
+    if not client then return false end
+
+    local req_rank = LocationData.required_rank
+    local final = LocationData.run_length
+
+    -- Check rank run at required rank is completed
+    local rank_loc = LocationData.rank_run_location_id(req_rank)
+    if not rank_loc or not client:is_location_checked(rank_loc) then
+        return false
+    end
+
+    -- Count completed pool weapon runs at final island on required rank
+    local weapon_count = 0
+    for wname, _ in pairs(LocationData.pool_weapons) do
+        local loc_id = LocationData.weapon_run_location_id_by_name(final, wname, req_rank)
+        if loc_id and client:is_location_checked(loc_id) then
+            weapon_count = weapon_count + 1
+        end
+    end
+
+    -- Count completed pool melee runs at final island on required rank
+    local melee_count = 0
+    if LocationData.melee_for_completion > 0 then
+        for mname, _ in pairs(LocationData.pool_melee) do
+            local loc_id = LocationData.melee_run_location_id_by_name(final, mname, req_rank)
+            if loc_id and client:is_location_checked(loc_id) then
+                melee_count = melee_count + 1
+            end
+        end
+    end
+
+    -- Count completed pool ability runs at final island on required rank
+    local ability_count = 0
+    if LocationData.ability_for_completion > 0 then
+        for aname, _ in pairs(LocationData.pool_abilities) do
+            local loc_id = LocationData.ability_run_location_id_by_name(final, aname, req_rank)
+            if loc_id and client:is_location_checked(loc_id) then
+                ability_count = ability_count + 1
+            end
+        end
+    end
+
+    local w_needed = LocationData.weapons_for_completion
+    local m_needed = LocationData.melee_for_completion
+    local a_needed = LocationData.ability_for_completion
+
+    log("Victory check: weapons=" .. weapon_count .. "/" .. w_needed
+        .. " melee=" .. melee_count .. "/" .. m_needed
+        .. " abilities=" .. ability_count .. "/" .. a_needed)
+
+    if weapon_count >= w_needed and melee_count >= m_needed and ability_count >= a_needed then
+        log("Victory conditions met!")
+        client:send_victory()
+        return true
+    end
+    return false
+end
+
 --- Install the pickup and island watch hooks.
 ---@param ap_client table The APClient instance
 function M.install(ap_client)
@@ -359,6 +420,9 @@ function M.install(ap_client)
                     )
                 end
             end
+
+            -- Check victory using shared function
+            M.check_victory()
         end
     end
 
@@ -390,6 +454,9 @@ function M.install(ap_client)
         if lobby_ok and lobby_actors and #lobby_actors > 0 then
             log("Portal from lobby detected — new run starting (island counter was " .. island_counter .. ")")
             island_counter = 0
+            -- Signal ItemApply that we've left the lobby (no more spawning mid-run)
+            local ia_ok, ItemApply = pcall(require, "AP/ItemApply")
+            if ia_ok and ItemApply then ItemApply.in_lobby = false end
             pending_shop_island = nil
             return
         end
@@ -413,6 +480,9 @@ function M.install(ap_client)
             LoopAsync(2000, function()
                 log("Lobby re-apply: resetting island counter and re-spawning run items")
                 island_counter = 0
+                -- Signal ItemApply that we're back in the lobby (spawning is safe again)
+                local ia_ok, ItemApply = pcall(require, "AP/ItemApply")
+                if ia_ok and ItemApply then ItemApply.in_lobby = true end
                 pending_shop_island = nil
                 -- Signal equip_lock that the run ended
                 local el = _G.AP and _G.AP.equip_lock or nil

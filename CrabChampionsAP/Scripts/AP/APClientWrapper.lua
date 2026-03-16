@@ -20,7 +20,7 @@ local function ensure_loaded()
     if dll_load_attempted then return false end
     dll_load_attempted = true
 
-    local lib_dir = "Mods/ArchipelagoMod/Scripts/AP/"
+    local lib_dir = "Mods/CrabChampionsAP/Scripts/AP/"
     local dll_path = lib_dir .. "lua-apclientpp.dll"
 
     -- Method 1: package.loadlib (preferred for UE4SS)
