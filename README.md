@@ -49,7 +49,8 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
    ```
    CrabChampionsAP : 1
    ```
-~~7. Download the lau-apclient 7z from [here](https://github.com/black-sliver/lua-apclientpp/releases/download/v0.6.4/lua54.7z), extract it, and copy the lua-apclientpp.dll file from the `lua54\lua54-clang64-static` folder and place it in the AP folder under `CrabChampionsAP\Scripts\AP`.~~ No longer needed, included with the zip.
+7. ~~Download the lau-apclient 7z from [here](https://github.com/black-sliver/lua-apclientpp/releases/download/v0.6.4/lua54.7z), extract it, and copy the lua-apclientpp.dll file from the `lua54\lua54-clang64-static` folder and place it in the AP folder under `CrabChampionsAP\Scripts\AP`.~~ No longer needed, included with the zip.
+
 8. Launch the game!  You will automatically connect to the server after a few seconds at the lobby.  You will see output in the console window that opens along with the game.
 
 ## Configuration Options
