@@ -41,6 +41,10 @@ M._run_items = {}
 -- Track total crystals received so we can re-grant them on lobby return
 M._run_crystals = 0
 
+-- Lobby state: items are only spawned/granted while in the lobby.
+-- Items received mid-run are tracked but not spawned until lobby return.
+M.in_lobby = true
+
 -- Queue for items waiting to be spawned (processed sequentially)
 local spawn_queue = {}
 local spawn_busy = false
@@ -325,7 +329,11 @@ function M.apply_item(ap_item_id)
         full_name = info.full_name,
     })
 
-    queue_spawn(info.da, info.name, info.full_name)
+    if M.in_lobby then
+        queue_spawn(info.da, info.name, info.full_name)
+    else
+        log("Queued for lobby: " .. info.name)
+    end
 end
 
 -------------------------------------------------------------

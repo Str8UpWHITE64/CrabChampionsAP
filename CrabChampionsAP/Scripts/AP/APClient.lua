@@ -369,9 +369,8 @@ function Client:_process_outgoing()
         local new_checks = {}
         for _, lid in ipairs(self._outgoing_checks) do
             lid = tonumber(lid)
-            if lid and not self._checked[lid] then
+            if lid then
                 new_checks[#new_checks + 1] = lid
-                self._checked[lid] = true
             end
         end
         self._outgoing_checks = {}
@@ -496,6 +495,7 @@ function Client:send_check(location_id)
     location_id = tonumber(location_id)
     if not location_id then return end
     if self._checked[location_id] then return end
+    self._checked[location_id] = true
     self._outgoing_checks[#self._outgoing_checks + 1] = location_id
 end
 

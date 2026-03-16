@@ -145,6 +145,16 @@ local function on_slot_connected(slot_data)
         equip_lock.request_enforce("slot_connected")
     end
 
+    -- Deferred victory check: on reconnect, the server sends already-checked
+    -- locations via location_checked handler AFTER slot_connected.  Wait a few
+    -- poll cycles so _checked is populated, then see if victory was already earned.
+    LoopAsync(3000, function()
+        if PickupWatch.check_victory() then
+            clog("STATUS", "Victory conditions already met on reconnect — sending goal!")
+        end
+        return true  -- run once
+    end)
+
     -- Activate inventory sanitization so perks/mods/relics picked up in-game
     -- are stripped unless received from the AP server.
     local inv_sanitize = _G.AP and _G.AP.inv_sanitize or nil
@@ -168,7 +178,7 @@ APClient.on_message = on_message
 APClient.on_slot_connected = on_slot_connected
 APClient.on_deathlink = on_deathlink
 
-local config_path = "Mods/ArchipelagoMod/Scripts/ap_config.json"
+local config_path = "Mods/CrabChampionsAP/Scripts/ap_config.json"
 local init_ok = APClient:init(config_path)
 
 if not init_ok then

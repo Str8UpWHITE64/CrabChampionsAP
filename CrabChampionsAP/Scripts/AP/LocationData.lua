@@ -58,6 +58,11 @@ M.required_rank = 0
 M.run_length = 28
 M.equipment_check_mode = 0  -- 0=regular, 1=filler_only, 2=disabled
 
+-- Completion requirements: populated by configure()
+M.weapons_for_completion = 1
+M.melee_for_completion = 0
+M.ability_for_completion = 0
+
 -- Pool equipment sets (name -> true): populated by configure()
 M.pool_weapons = {}
 M.pool_melee = {}
@@ -72,6 +77,9 @@ function M.configure(slot_data)
     M.required_rank = tonumber(opts.required_rank) or 0
     M.run_length = tonumber(opts.run_length) or 28
     M.equipment_check_mode = tonumber(opts.equipment_check_mode) or 0
+    M.weapons_for_completion = tonumber(opts.weapons_for_completion) or 1
+    M.melee_for_completion = tonumber(opts.melee_for_completion) or 0
+    M.ability_for_completion = tonumber(opts.ability_for_completion) or 0
 
     -- Build pool lookup sets from slot_data lists
     M.pool_weapons = {}
@@ -392,6 +400,30 @@ end
 function M.ability_run_location_id(island_num, ability_full_name, rank)
     local key = da_name_to_key(ability_full_name)
     if not key then return nil end
+    local idx = position_maps.ability and position_maps.ability[key]
+    if not idx then return nil end
+    return equipment_run_id(M.REGION.ability_run, #ability_names, island_num, idx, rank)
+end
+
+--- Get location ID for weapon run by clean name (e.g. "Auto Rifle").
+function M.weapon_run_location_id_by_name(island_num, weapon_name, rank)
+    local key = name_to_key(weapon_name)
+    local idx = position_maps.weapon and position_maps.weapon[key]
+    if not idx then return nil end
+    return equipment_run_id(M.REGION.weapon_run, #weapon_names, island_num, idx, rank)
+end
+
+--- Get location ID for melee run by clean name (e.g. "Hammer").
+function M.melee_run_location_id_by_name(island_num, melee_name, rank)
+    local key = name_to_key(melee_name)
+    local idx = position_maps.melee and position_maps.melee[key]
+    if not idx then return nil end
+    return equipment_run_id(M.REGION.melee_run, #melee_names, island_num, idx, rank)
+end
+
+--- Get location ID for ability run by clean name (e.g. "Grenade").
+function M.ability_run_location_id_by_name(island_num, ability_name, rank)
+    local key = name_to_key(ability_name)
     local idx = position_maps.ability and position_maps.ability[key]
     if not idx then return nil end
     return equipment_run_id(M.REGION.ability_run, #ability_names, island_num, idx, rank)
