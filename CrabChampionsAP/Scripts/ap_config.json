@@ -1,10 +1,5 @@
 {
   "server": "localhost:38281",
-  "slot": "Alex",
-  "password": "",
-  "game": "Crab Champions",
-  "game_folder": "",
-  "uuid": "",
-  "tags": ["AP"],
-  "items_handling": 7
+  "slot": "Crab",
+  "password": ""
 }
