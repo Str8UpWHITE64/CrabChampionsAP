@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from Options import Toggle, DefaultOnToggle, Range, Choice, ItemDict, DeathLink, PerGameCommonOptions
 
 
+# Victory conditions
+
 class RequiredRank(Choice):
     """The minimum rank that must be completed for victory.
     Rank is determined by difficulty modifier points:
@@ -21,52 +23,6 @@ class RequiredRank(Choice):
     default = 0
 
 
-class MaxRank(Choice):
-    """Maximum rank that generates location checks.
-    Ranks above this produce no locations. Must be >= Required Rank.
-    Locations between Required Rank and Max Rank are optional extras."""
-    display_name = "Max Rank"
-    option_bronze = 0
-    option_silver = 1
-    option_gold = 2
-    option_sapphire = 3
-    option_emerald = 4
-    option_ruby = 5
-    option_diamond = 6
-    option_prismatic = 7
-    default = 3
-
-
-class NonProgressionAboveRequired(Toggle):
-    """When enabled, items placed at locations for ranks above the Required Rank
-    (but at or below Max Rank) are classified as useful/filler only, never progression.
-    This prevents critical items from being locked behind higher difficulty ranks."""
-    display_name = "Non-Progression Above Required Rank"
-
-
-class ExtraRankedIslandChecks(Toggle):
-    """When enabled, island completions and equipment runs are tracked per rank
-    for ALL ranks up to Max Rank, not just the Required Rank.
-    For example, 'Complete Island 10 with Auto Rifle on Silver' becomes a check
-    even if Required Rank is Bronze. Greatly increases location count."""
-    display_name = "Extra Ranked Island Checks"
-
-
-class CascadeRankedChecks(Toggle):
-    """When enabled, completing a check at a higher rank also completes
-    the equivalent check at all lower ranks. For example, completing
-    Island 5 on Gold also checks Island 5 on Silver and Bronze."""
-    display_name = "Cascade Ranked Checks"
-
-
-class WeaponsForCompletion(Range):
-    """Number of different weapons the player must complete a run with for victory."""
-    display_name = "Weapons for Completion"
-    range_start = 1
-    range_end = 20
-    default = 5
-
-
 class RunLength(Choice):
     """How many islands must be completed for a run to count as finished.
     The game loops islands in cycles of 28. A normal run is 28 islands (1 cycle),
@@ -77,14 +33,11 @@ class RunLength(Choice):
     default = 28
 
 
-class WeaponsInPool(Range):
-    """How many weapons are randomly selected and placed into the AP item pool.
-    The player must find these weapons as AP items before they can use them.
-    Must be >= Weapons for Completion. Capped at 19 so the player always has
-    at least one weapon available from the start."""
-    display_name = "Weapons in Pool"
+class WeaponsForCompletion(Range):
+    """Number of different weapons the player must complete a run with for victory."""
+    display_name = "Weapons for Completion"
     range_start = 1
-    range_end = 19
+    range_end = 20
     default = 5
 
 
@@ -97,16 +50,6 @@ class MeleeForCompletion(Range):
     default = 3
 
 
-class MeleeInPool(Range):
-    """How many melee weapons are randomly selected and placed into the AP item pool.
-    Must be >= Melee for Completion. Forced to 0 when Melee for Completion is 0.
-    Capped at 4 so the player always has at least one melee weapon available."""
-    display_name = "Melee in Pool"
-    range_start = 0
-    range_end = 4
-    default = 0
-
-
 class AbilityForCompletion(Range):
     """Number of different abilities the player must complete a run with for victory.
     Set to 0 to disable ability randomization and ability completion locations entirely."""
@@ -116,8 +59,43 @@ class AbilityForCompletion(Range):
     default = 3
 
 
+# Item pool / equipment
+
+class WeaponsInPool(Range):
+    """How many weapons are randomly selected and placed into the AP item pool.
+    The player must find these weapons as AP items before they can use them.
+    Each weapon in the pool generates its own run-completion location check,
+    even if Weapons for Completion is lower than this value.
+    For example, with 5 in pool and 3 for completion, all 5 weapons create
+    location checks but only 3 must be completed for victory.
+    Must be >= Weapons for Completion. Capped at 19 so the player always has
+    at least one weapon available from the start."""
+    display_name = "Weapons in Pool"
+    range_start = 1
+    range_end = 19
+    default = 5
+
+
+class MeleeInPool(Range):
+    """How many melee weapons are randomly selected and placed into the AP item pool.
+    Each melee weapon in the pool generates its own run-completion location check,
+    even if Melee for Completion is lower than this value.
+    For example, with 3 in pool and 1 for completion, all 3 melee weapons create
+    location checks but only 1 must be completed for victory.
+    Must be >= Melee for Completion. Forced to 0 when Melee for Completion is 0.
+    Capped at 4 so the player always has at least one melee weapon available."""
+    display_name = "Melee in Pool"
+    range_start = 0
+    range_end = 4
+    default = 0
+
+
 class AbilitiesInPool(Range):
     """How many abilities are randomly selected and placed into the AP item pool.
+    Each ability in the pool generates its own run-completion location check,
+    even if Abilities for Completion is lower than this value.
+    For example, with 4 in pool and 2 for completion, all 4 abilities create
+    location checks but only 2 must be completed for victory.
     Must be >= Abilities for Completion. Forced to 0 when Abilities for Completion is 0.
     Capped at 6 so the player always has at least one ability available."""
     display_name = "Abilities in Pool"
@@ -149,8 +127,51 @@ class EquipmentCheckMode(Choice):
     option_regular = 0
     option_filler_only = 1
     option_disabled = 2
-    default = 0
+    default = 2
 
+
+# Rank modifiers
+
+class MaxRank(Choice):
+    """Maximum rank that generates location checks.
+    Ranks above this produce no locations. Must be >= Required Rank.
+    Locations between Required Rank and Max Rank are optional extras."""
+    display_name = "Max Rank"
+    option_bronze = 0
+    option_silver = 1
+    option_gold = 2
+    option_sapphire = 3
+    option_emerald = 4
+    option_ruby = 5
+    option_diamond = 6
+    option_prismatic = 7
+    default = 3
+
+
+class ExtraRankedIslandChecks(Toggle):
+    """When enabled, island completions and equipment runs are tracked per rank
+    for ALL ranks up to Max Rank, not just the Required Rank.
+    For example, 'Complete Island 10 with Auto Rifle on Silver' becomes a check
+    even if Required Rank is Bronze. Greatly increases location count."""
+    display_name = "Extra Ranked Island Checks"
+
+
+class NonProgressionAboveRequired(Toggle):
+    """When enabled, items placed at locations for ranks above the Required Rank
+    (but at or below Max Rank) are classified as useful/filler only, never progression.
+    This prevents critical items from being locked behind higher difficulty ranks.
+    Only has an effect when Extra Ranked Island Checks is enabled."""
+    display_name = "Non-Progression Above Required Rank"
+
+
+class CascadeRankedChecks(Toggle):
+    """When enabled, completing a check at a higher rank also completes
+    the equivalent check at all lower ranks. For example, completing
+    Island 5 on Gold also checks Island 5 on Silver and Bronze."""
+    display_name = "Cascade Ranked Checks"
+
+
+# Filler / misc
 
 class CrystalCachePercentage(Range):
     """Percentage of extra item pool slots filled with Crystal Cache (grants crystals)
@@ -170,20 +191,24 @@ class GuaranteedItemsOption(ItemDict):
 
 @dataclass
 class CrabChampsOption(PerGameCommonOptions):
+    # Victory conditions
     required_rank: RequiredRank
-    max_rank: MaxRank
-    non_progression_above_required: NonProgressionAboveRequired
-    extra_ranked_island_checks: ExtraRankedIslandChecks
-    cascade_ranked_checks: CascadeRankedChecks
     run_length: RunLength
     weapons_for_completion: WeaponsForCompletion
-    weapons_in_pool: WeaponsInPool
-    starting_weapons: StartingWeapons
     melee_for_completion: MeleeForCompletion
-    melee_in_pool: MeleeInPool
     ability_for_completion: AbilityForCompletion
+    # Item pool / equipment
+    weapons_in_pool: WeaponsInPool
+    melee_in_pool: MeleeInPool
     abilities_in_pool: AbilitiesInPool
+    starting_weapons: StartingWeapons
     equipment_check_mode: EquipmentCheckMode
+    # Rank modifiers
+    max_rank: MaxRank
+    extra_ranked_island_checks: ExtraRankedIslandChecks
+    non_progression_above_required: NonProgressionAboveRequired
+    cascade_ranked_checks: CascadeRankedChecks
+    # Filler / misc
     crystal_cache_percentage: CrystalCachePercentage
     guaranteed_items: GuaranteedItemsOption
     death_link: DeathLink
