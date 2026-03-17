@@ -55,24 +55,130 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 
 ## Configuration Options
 
-These options are set in your Archipelago YAML configuration file:
+These options are set in your Archipelago YAML configuration file. They are grouped below in the same order they appear in the YAML template.
 
-| Option                     | Default  | Description                                                                       |
-|----------------------------|----------|-----------------------------------------------------------------------------------|
-| `required_rank`            | Bronze   | Minimum difficulty rank required for completion                                   |
-| `max_rank`                 | Sapphire | Highest rank that generates location checks                                       |
-| `weapons_for_completion`   | 5        | Number of different weapons needed to win                                         |
-| `run_length`               | short    | Number of islands to complete to consider a "run" complete. Short = 28, long = 56 |
-| `weapons_in_pool`          | 5        | Number of weapons randomized into the pool                                        |
-| `melee_for_completion`     | 3        | Number of melee weapons needed to win                                             |
-| `melee_in_pool`            | 0        | Number of melee weapons in the pool                                               |
-| `abilities_for_completion` | 3        | Number of abilities needed to win                                                 |
-| `abilities_in_pool`        | 0        | Number of abilities in the pool                                                   |
-| `extra_ranked_checks`      | false    | Generate checks for all rank tiers, not just required                             |
-| `cascade_ranked_checks`    | true     | Completing at rank R counts for all lower ranks                                   |
-| `equipment_check_mode`     | Regular  | How non-pool equipment run locations work                                         |
-| `crystal_cache_percentage` | 75       | Percentage of filler that is crystal rewards vs. stackable items                  |
-| `death_link`               | false    | ~~Enable synchronized deaths across players~~                                     |
+### Victory Conditions
+
+These options define what you need to accomplish to complete the game.
+
+#### `required_rank` (Default: Bronze)
+The minimum difficulty rank you must complete a run at for it to count toward victory. Ranks are determined by how many difficulty modifier points you have active:
+
+| Rank | Modifier Points |
+|------|----------------|
+| Bronze | 0 |
+| Silver | 1 |
+| Gold | 2–3 |
+| Sapphire | 4–5 |
+| Emerald | 6–7 |
+| Ruby | 8–9 |
+| Diamond | 10–15 |
+| Prismatic | 16+ |
+
+> **Example:** With `required_rank: gold`, you need at least 2 difficulty modifier points active when you finish a run for it to count.
+
+#### `run_length` (Default: short)
+How many islands you must complete for a single run to count as finished. The game loops islands in cycles of 28.
+- **short** = 28 islands (1 cycle)
+- **full** = 56 islands (2 cycles)
+
+> **Example:** With `run_length: short`, clearing all 28 islands in a single run counts as a completed run.
+
+#### `weapons_for_completion` (Default: 5, Range: 1–20)
+How many different weapons you must complete a run with for victory. Each weapon requires its own full run.
+
+> **Example:** With `weapons_for_completion: 3`, you need to finish 3 separate runs, each with a different weapon equipped, before you can win.
+
+#### `melee_for_completion` (Default: 3, Range: 0–5)
+How many different melee weapons you must complete a run with for victory. Set to **0** to disable melee completion requirements entirely (no melee location checks are generated).
+
+> **Example:** With `melee_for_completion: 2`, you need 2 completed runs using different melee weapons. Setting it to `0` removes all melee-related checks from the game.
+
+#### `ability_for_completion` (Default: 3, Range: 0–7)
+How many different abilities you must complete a run with for victory. Set to **0** to disable ability completion requirements entirely (no ability location checks are generated).
+
+> **Example:** With `ability_for_completion: 2`, you need 2 completed runs using different abilities. Setting it to `0` removes all ability-related checks from the game.
+
+---
+
+### Item Pool & Equipment
+
+These options control which equipment is randomized into the Archipelago item pool and how equipment-based location checks work.
+
+#### `weapons_in_pool` (Default: 5, Range: 1–19)
+How many weapons are randomly selected and locked behind the AP item pool. You must receive these weapons from other players (or yourself) before you can use them. **Each weapon in the pool creates its own run-completion location check**, even if `weapons_for_completion` is lower.
+
+Capped at 19 so you always have at least one weapon available from the start.
+
+> **Example:** With `weapons_in_pool: 5` and `weapons_for_completion: 3`, five specific weapons (e.g., Auto Rifle, Rocket Launcher, Arcane Wand, Blade Launcher, Railgun) are locked behind AP items. Each of those 5 weapons generates a "Complete a run with [Weapon]" location check — that's **5 location checks total**. However, you only need to complete runs with any **3** of them to satisfy the victory condition.
+
+#### `melee_in_pool` (Default: 0, Range: 0–4)
+How many melee weapons are locked behind the AP item pool. **Each melee weapon in the pool creates its own run-completion location check**, even if `melee_for_completion` is lower. Forced to 0 when `melee_for_completion` is 0. Capped at 4 so you always have at least one melee weapon available.
+
+> **Example:** With `melee_in_pool: 3` and `melee_for_completion: 1`, three melee weapons (e.g., Katana, Hammer, Dagger) are locked. All 3 generate location checks ("Complete a run with Katana", "Complete a run with Hammer", "Complete a run with Dagger"), but you only need to complete a run with **1** of them to win.
+
+#### `abilities_in_pool` (Default: 0, Range: 0–6)
+How many abilities are locked behind the AP item pool. **Each ability in the pool creates its own run-completion location check**, even if `ability_for_completion` is lower. Forced to 0 when `ability_for_completion` is 0. Capped at 6 so you always have at least one ability available.
+
+> **Example:** With `abilities_in_pool: 4` and `ability_for_completion: 2`, four abilities (e.g., Grenade, Black Hole, Ice Blast, Laser Beam) are locked. All 4 generate location checks, but only **2** must be completed for victory.
+
+#### `starting_weapons` (Default: 0, Range: 0–19)
+How many of your pool weapons you start with already unlocked. These are randomly selected from your pool and given to you immediately, so you can start working on equipment run checks right away. Must be less than `weapons_in_pool`.
+
+> **Example:** With `weapons_in_pool: 5` and `starting_weapons: 2`, you begin the game with 2 of your 5 pool weapons already unlocked and need to find the other 3 through AP.
+
+#### `equipment_check_mode` (Default: disabled)
+Controls how **non-pool** equipment run locations behave. Equipment that is in the AP pool always generates normal location checks. This option only affects equipment that is **not** in the pool (i.e., equipment you have access to from the start):
+- **regular** — Non-pool equipment creates normal location checks that can hold any item.
+- **filler_only** — Non-pool equipment creates location checks, but they can only hold filler/useful items (never progression).
+- **disabled** — Non-pool equipment does not create any location checks at all.
+
+> **Example:** If you have 5 weapons in the pool and 15 not in the pool, with `equipment_check_mode: disabled`, only the 5 pool weapons generate run-completion checks. With `equipment_check_mode: regular`, all 20 weapons generate checks.
+
+---
+
+### Rank Modifiers
+
+These options control how difficulty ranks interact with location checks. They are most impactful when you want checks at multiple rank tiers.
+
+#### `max_rank` (Default: Sapphire)
+The highest rank that generates location checks. Must be >= `required_rank`. Any rank above this produces no locations at all. The ranks between `required_rank` and `max_rank` provide optional extra checks when `extra_ranked_island_checks` is enabled.
+
+> **Example:** With `required_rank: bronze` and `max_rank: gold`, locations can be generated for Bronze, Silver, and Gold. Anything done at Sapphire or above produces no additional checks.
+
+#### `extra_ranked_island_checks` (Default: false)
+When enabled, island completions and equipment runs generate **separate checks for each rank** up to `max_rank`, not just at the `required_rank`. This greatly increases the total number of locations.
+
+When **disabled**, `max_rank` and `non_progression_above_required` have no meaningful effect, since all checks are generated only at the `required_rank` level.
+
+> **Example:** With `required_rank: bronze`, `max_rank: gold`, and `extra_ranked_island_checks: true`, completing Island 10 generates three separate checks: "Complete Island 10 on Bronze", "Complete Island 10 on Silver", and "Complete Island 10 on Gold". Without this option, only "Complete Island 10 on Bronze" exists.
+
+#### `non_progression_above_required` (Default: false)
+When enabled, items placed at locations for ranks **above** the `required_rank` (but at or below `max_rank`) are classified as useful or filler only — never progression. This prevents critical items from being locked behind higher difficulty content.
+
+**Only has an effect when `extra_ranked_island_checks` is enabled.** If extra ranked checks are off, there are no above-required-rank locations to restrict.
+
+> **Example:** With `required_rank: bronze`, `max_rank: gold`, and both toggles enabled, the Bronze-rank checks can contain progression items (weapons, key unlocks, etc.), but the Silver and Gold checks will only contain helpful or filler items. You'll never be forced to play at Gold rank to find a required weapon.
+
+#### `cascade_ranked_checks` (Default: false)
+When enabled, completing a check at a higher rank automatically completes the equivalent check at all lower ranks.
+
+> **Example:** With cascade enabled, completing "Island 5 on Gold" also marks "Island 5 on Silver" and "Island 5 on Bronze" as complete. Without cascade, you'd need to complete each rank separately.
+
+---
+
+### Filler & Miscellaneous
+
+#### `crystal_cache_percentage` (Default: 75, Range: 0–100)
+Controls what percentage of extra item pool slots are filled with Crystal Cache rewards (which grant crystals in-game) versus additional copies of perks and mods.
+
+> **Example:** At `75`, three-quarters of the filler slots are crystal rewards and one-quarter are extra perk/mod stacks. At `0`, all filler is perks/mods. At `100`, all filler is crystals.
+
+#### `guaranteed_items` (Default: empty)
+A dictionary of specific items guaranteed to appear in the item pool.
+
+#### `death_link` (Default: false)
+~~When enabled, dying in Crab Champions sends a death to all connected Death Link players, and deaths from other players kill you.~~ **Currently not implemented.**
 
 ## Item Categories
 
