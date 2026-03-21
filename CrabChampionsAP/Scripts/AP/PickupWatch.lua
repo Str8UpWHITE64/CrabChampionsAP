@@ -46,19 +46,30 @@ local function get_ps()
 end
 
 --- Read the current rank from CrabGS.Difficulty (ECrabRank enum).
---- Game uses 1-indexed (Bronze=1..Prismatic=8), we convert to 0-indexed.
+--- The Difficulty property already stores the rank index directly:
+---   0=Bronze, 1=Silver, 2=Gold, 3=Sapphire, 4=Emerald,
+---   5=Ruby, 6=Diamond, 7=Prismatic.
 local function get_current_rank()
     local ok, gs = pcall(function() return FindFirstOf("CrabGS") end)
-    if not ok or not gs or not gs:IsValid() then return 0 end
+    if not ok or not gs or not gs:IsValid() then
+        log("WARNING: CrabGS not found, defaulting to Bronze")
+        return 0
+    end
 
     local d_ok, diff = pcall(function() return gs.Difficulty end)
-    if not d_ok then return 0 end
+    if not d_ok then
+        log("WARNING: Could not read CrabGS.Difficulty, defaulting to Bronze")
+        return 0
+    end
 
-    -- ECrabRank: None=0, Bronze=1, Silver=2, ..., Prismatic=8
-    local game_rank = tonumber(diff) or 1
-    local ap_rank = game_rank - 1  -- 0-indexed for AP
-    if ap_rank < 0 then ap_rank = 0 end
-    return ap_rank
+    local rank = tonumber(diff) or 0
+    -- Clamp to valid range 0-7
+    if rank < 0 then rank = 0 end
+    if rank > 7 then rank = 7 end
+    log("Rank detection: Difficulty=" .. tostring(diff)
+        .. " rank=" .. tostring(rank)
+        .. " (" .. (LocationData.RANK_NAMES[rank + 1] or "?") .. ")")
+    return rank
 end
 
 -- ---------------------------------------------------------------
@@ -310,6 +321,7 @@ function M.install(ap_client)
 
         -- Island completion checks
         if LocationData.extra_ranked_island_checks then
+            -- Extra ranked mode: send ranked checks for all applicable ranks
             for _, r in ipairs(check_ranks) do
                 if r <= LocationData.max_rank then
                     local rname = LocationData.RANK_NAMES[r + 1] or "?"
@@ -320,10 +332,18 @@ function M.install(ap_client)
                 end
             end
         else
+            -- Normal mode: send unranked check + ranked check at required_rank
             try_send_check(
                 LocationData.island_location_id(num),
                 "Island check: " .. pfx .. " " .. num
             )
+            if rank >= LocationData.required_rank then
+                local rname = LocationData.RANK_NAMES[LocationData.required_rank + 1] or "?"
+                try_send_check(
+                    LocationData.island_location_id(num, LocationData.required_rank),
+                    "Ranked island: " .. pfx .. " " .. num .. " on " .. rname
+                )
+            end
         end
 
         -- Equipment run checks
@@ -338,8 +358,12 @@ function M.install(ap_client)
             local a_ok, a_da = pcall(function() return ps.AbilityDA end)
             local ability_fn = a_ok and get_full_name(a_da) or nil
 
-            -- Unranked equipment checks (only when extra_ranked is off)
+            -- Unranked + required-rank equipment checks (when extra_ranked is off)
             if not LocationData.extra_ranked_island_checks then
+                local req_rank = LocationData.required_rank
+                local rname = LocationData.RANK_NAMES[req_rank + 1] or "?"
+                local at_req = rank >= req_rank
+
                 if weapon_fn then
                     local wname = LocationData.equipment_name("weapon", weapon_fn)
                     if should_check_equip(wname, LocationData.is_pool_weapon) then
@@ -347,6 +371,12 @@ function M.install(ap_client)
                             LocationData.weapon_run_location_id(num, weapon_fn),
                             "Weapon run: Island " .. num .. " with " .. wname
                         )
+                        if at_req then
+                            try_send_check(
+                                LocationData.weapon_run_location_id(num, weapon_fn, req_rank),
+                                "Ranked weapon: Island " .. num .. " with " .. wname .. " on " .. rname
+                            )
+                        end
                     end
                 end
                 if melee_fn then
@@ -356,6 +386,12 @@ function M.install(ap_client)
                             LocationData.melee_run_location_id(num, melee_fn),
                             "Melee run: Island " .. num .. " with " .. mname
                         )
+                        if at_req then
+                            try_send_check(
+                                LocationData.melee_run_location_id(num, melee_fn, req_rank),
+                                "Ranked melee: Island " .. num .. " with " .. mname .. " on " .. rname
+                            )
+                        end
                     end
                 end
                 if ability_fn then
@@ -365,6 +401,12 @@ function M.install(ap_client)
                             LocationData.ability_run_location_id(num, ability_fn),
                             "Ability run: Island " .. num .. " with " .. aname
                         )
+                        if at_req then
+                            try_send_check(
+                                LocationData.ability_run_location_id(num, ability_fn, req_rank),
+                                "Ranked ability: Island " .. num .. " with " .. aname .. " on " .. rname
+                            )
+                        end
                     end
                 end
             end
@@ -411,11 +453,23 @@ function M.install(ap_client)
         -- Run completion check (when player reaches the final island)
         if num >= LocationData.run_length then
             log("Run complete at island " .. num .. "!")
-            for _, r in ipairs(check_ranks) do
-                if r <= LocationData.max_rank then
-                    local rname = LocationData.RANK_NAMES[r + 1] or "?"
+            if LocationData.extra_ranked_island_checks then
+                -- Extra ranked mode: send rank runs for all applicable ranks
+                for _, r in ipairs(check_ranks) do
+                    if r <= LocationData.max_rank then
+                        local rname = LocationData.RANK_NAMES[r + 1] or "?"
+                        try_send_check(
+                            LocationData.rank_run_location_id(r),
+                            "Rank run: Complete Run on " .. rname
+                        )
+                    end
+                end
+            else
+                -- Normal mode: only send rank run at required_rank
+                if rank >= LocationData.required_rank then
+                    local rname = LocationData.RANK_NAMES[LocationData.required_rank + 1] or "?"
                     try_send_check(
-                        LocationData.rank_run_location_id(r),
+                        LocationData.rank_run_location_id(LocationData.required_rank),
                         "Rank run: Complete Run on " .. rname
                     )
                 end
