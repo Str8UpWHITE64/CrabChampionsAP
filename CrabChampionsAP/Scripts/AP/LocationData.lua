@@ -322,7 +322,7 @@ function M.island_location_id(island_num, rank)
     if not island_num or island_num < 1 or island_num > M.MAX_ISLANDS then return nil end
 
     local position
-    if M.extra_ranked_island_checks and rank then
+    if rank ~= nil then
         rank = tonumber(rank) or 0
         if rank < 0 or rank >= M.NUM_RANKS then return nil end
         position = 57 + rank * M.MAX_ISLANDS + (island_num - 1)
@@ -362,7 +362,7 @@ local function equipment_run_id(region, num_equip, island_num, equip_index, rank
     local base_pos = (island_num - 1) * num_equip + equip_index
     local position
 
-    if M.extra_ranked_island_checks and rank then
+    if rank ~= nil then
         rank = tonumber(rank) or 0
         if rank < 0 or rank >= M.NUM_RANKS then return nil end
         local unranked_size = M.MAX_ISLANDS * num_equip

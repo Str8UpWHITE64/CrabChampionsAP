@@ -249,11 +249,15 @@ class CrabChampsWorld(World):
             island_num = self._extract_island_num(location.name)
             return island_num <= run_length
 
-        # Rank runs: filter by max_rank
+        # Rank runs: only required_rank when extra_ranked is off,
+        # all ranks up to max_rank when extra_ranked is on
         if location.category == CrabChampsLocationCategory.RANK_RUN:
             rank_name = location.name.replace("Complete Run on ", "")
             rank_index = RANK_NAMES.index(rank_name) if rank_name in RANK_NAMES else -1
-            return rank_index <= max_rank
+            if extra_ranked:
+                return rank_index <= max_rank
+            else:
+                return rank_index == required_rank
 
         # Equipment runs (unranked): filter by run_length + pool membership.
         # When extra_ranked is on, skip unranked equipment runs (ranked versions cover them).
@@ -414,17 +418,16 @@ class CrabChampsWorld(World):
         data = self.item_name_to_id[name]
         item_cat = item_dictionary[name].category
 
-        # Only pool equipment is progression; non-pool equipment shouldn't be in the item pool
-        # but if it ends up here (e.g. via guaranteed_items), classify as useful.
-        pool_equip_names = set(self.pool_weapons + self.pool_melee + self.pool_abilities)
+        # All weapons/melee/abilities are classified as progression so that
+        # state.has() works correctly in rule evaluation (has() only counts
+        # progression items).  Non-pool equipment is never placed in the item
+        # pool, so this classification doesn't affect generation.
         if name in key_item_names:
             classification = ItemClassification.progression
         elif item_cat in (CrabChampsItemCategory.WEAPON,
                           CrabChampsItemCategory.ABILITY,
                           CrabChampsItemCategory.MELEE):
-            classification = (ItemClassification.progression
-                              if name in pool_equip_names
-                              else ItemClassification.useful)
+            classification = ItemClassification.progression
         elif item_cat in (
             CrabChampsItemCategory.PERK,
             CrabChampsItemCategory.RELIC,
@@ -515,29 +518,37 @@ class CrabChampsWorld(World):
                         lambda state, prev=prev_name: state.can_reach_location(prev, self.player)
                     )
 
-        # --- Rank runs: sequential, first requires final island ---
-        # When extra_ranked is on, use the ranked final island (Bronze) instead of unranked
+        # --- Rank runs ---
         if extra_ranked:
+            # Sequential chain: Bronze requires final ranked island, each rank requires previous
             final_island_dep = _il(run_length, rank=RANK_NAMES[0])
-        else:
-            final_island_dep = final_island
-        try:
-            set_rule(
-                self.multiworld.get_location("Complete Run on Bronze", self.player),
-                lambda state, fi=final_island_dep: state.can_reach_location(fi, self.player)
-            )
-        except KeyError:
-            pass
-
-        for i in range(1, max_rank + 1):
-            current_rank = RANK_NAMES[i]
-            previous_rank = RANK_NAMES[i - 1]
             try:
                 set_rule(
-                    self.multiworld.get_location(f"Complete Run on {current_rank}", self.player),
-                    lambda state, prev=previous_rank: state.can_reach_location(
-                        f"Complete Run on {prev}", self.player
+                    self.multiworld.get_location("Complete Run on Bronze", self.player),
+                    lambda state, fi=final_island_dep: state.can_reach_location(fi, self.player)
+                )
+            except KeyError:
+                pass
+
+            for i in range(1, max_rank + 1):
+                current_rank = RANK_NAMES[i]
+                previous_rank = RANK_NAMES[i - 1]
+                try:
+                    set_rule(
+                        self.multiworld.get_location(f"Complete Run on {current_rank}", self.player),
+                        lambda state, prev=previous_rank: state.can_reach_location(
+                            f"Complete Run on {prev}", self.player
+                        )
                     )
+                except KeyError:
+                    pass
+        else:
+            # Only required_rank exists: depends on final ranked island at required_rank
+            final_ranked_dep = _il(run_length, rank=required_rank_name)
+            try:
+                set_rule(
+                    self.multiworld.get_location(f"Complete Run on {required_rank_name}", self.player),
+                    lambda state, fi=final_ranked_dep: state.can_reach_location(fi, self.player)
                 )
             except KeyError:
                 pass
