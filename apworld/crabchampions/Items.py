@@ -38,7 +38,7 @@ class CrabChampsItem(Item):
 key_item_names = set()
 
 # ──────────────────────────────────────────────
-# Perks  (cc_code 1–107)  — stackable
+# Perks  (cc_code 1–111)  — stackable
 # ──────────────────────────────────────────────
 _perk_names = [
     "Anti Crit", "Banana", "Bounty Hunter", "Bulletproof", "Bullseye",
@@ -63,6 +63,8 @@ _perk_names = [
     "Crystal Asteroids", "Dagger Dash", "Electric Enemies", "Faulty Chests", "Flammable Enemies",
     "Freezing Enemies", "Ice Dash", "Level Up", "Lightning Dash", "Poisonous Enemies",
     "Powerslide", "Rare Treasure",
+    # Beta update
+    "Charger", "Giant Slayer", "Liquid Core", "Weightlifter",
 ]
 
 _perk_items = [
@@ -71,7 +73,7 @@ _perk_items = [
 ]
 
 # ──────────────────────────────────────────────
-# Relics  (cc_code 200–252)  — unique (one copy each)
+# Relics  (cc_code 200–259)  — unique (one copy each)
 # ──────────────────────────────────────────────
 _relic_names = [
     "Adrenaline Amulet", "Blacksmith Amulet", "Combo Ring", "Coral Amulet", "Icebreaker",
@@ -85,6 +87,9 @@ _relic_names = [
     "Overspill Goblet", "Ring Of Favoritism", "Ring Of Tankiness", "Trigger Ring", "Upgrade Ring",
     "Ability Ring", "Portal Amulet", "Ring Of Gravity", "Ring Of Luck", "Ring Of Protection",
     "Ring Of Regenerating Armor", "Ring Of Swiftness", "Twin Ring",
+    # Beta update
+    "AOE Ring", "Barter Ring", "Blessed Ring", "Corrupt Stocktaker",
+    "Lingering Fumes", "Overcharge Ring", "Sweet Spot",
 ]
 
 _relic_items = [
@@ -133,7 +138,7 @@ _melee_items = [
 ]
 
 # ──────────────────────────────────────────────
-# Weapon Mods  (cc_code 600–689)  — stackable
+# Weapon Mods  (cc_code 600–690)  — stackable
 # ──────────────────────────────────────────────
 _weapon_mod_names = [
     "Accelerating Shot", "Arc Shot", "Arcane Blast", "Arcane Shot", "Aura Shot",
@@ -154,6 +159,8 @@ _weapon_mod_names = [
     "Steady Shot", "Streak Shot", "Supercharged", "Targeting Shot", "Thorn Shot",
     "Time Bolt", "Time Shot", "Torpedo Shot", "Triangle Shot", "Trick Shot",
     "Triple Shot", "Ultra Shot", "Wind Up", "X Shot", "Zig Zag Shot",
+    # Beta update
+    "Full Focus",
 ]
 
 _weapon_mod_items = [

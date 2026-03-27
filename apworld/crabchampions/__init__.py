@@ -43,7 +43,7 @@ class CrabChampsWorld(World):
     options: CrabChampsOption
     topology_present: bool = False
     web = CrabChampsWeb()
-    data_version = 2
+    data_version = 3
     base_id = 1890000
     enabled_location_categories: Set[CrabChampsLocationCategory]
     required_client_version = (0, 5, 0)
