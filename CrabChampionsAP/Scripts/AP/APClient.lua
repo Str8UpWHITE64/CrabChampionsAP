@@ -18,7 +18,7 @@ local Client = {
     password = "",
     game = "Crab Champions",
     uuid = "",
-    tags = { "AP" },
+    tags = { "AP", "DeathLink" },
     items_handling = 7,
     version = { 0, 5, 1 },
 
@@ -34,7 +34,7 @@ local Client = {
     slot_data = {},
 
     -- Item tracking (append-only with index-based ack)
-    _applied_index = 0,
+    _applied_index = -1,
     _pending_items = {},
 
     -- Location tracking
@@ -53,6 +53,8 @@ local Client = {
     on_item = nil,           -- function(item_entry)
     on_message = nil,        -- function(text)
     on_slot_connected = nil, -- function(slot_data)
+    on_disconnected = nil,   -- function()
+    on_slot_refused = nil,   -- function(reason_str)
     on_deathlink = nil,      -- function(source, cause)
 }
 
@@ -86,19 +88,17 @@ function Client:init(config_path)
     self.game = config.game or self.game
     self.uuid = config.uuid or self.uuid
     self.items_handling = config.items_handling or self.items_handling
-
-    if config.tags and type(config.tags) == "table" then
-        self.tags = config.tags
-    end
+    -- tags are hardcoded (always include DeathLink) — not loaded from config
 
     if self.slot == "" then
         log("WARNING: No slot name configured in ap_config.json")
     end
 
-    -- Mark for deferred init — actual DLL work happens in LoopAsync
-    self._deferred_init = true
+    -- Do NOT auto-connect — wait for explicit connect command (F3 / F6)
+    self._deferred_init = false
     self.enabled = true
     log("Config loaded (server=" .. self.server .. ", slot=" .. self.slot .. ")")
+    log("Press F3 to connect or F4 to open the connection panel")
 
     -- Start the async loop — ALL DLL interaction happens here
     self:_start_async_loop()
@@ -183,6 +183,7 @@ function Client:_register_handlers()
         self._connected = false
         self._slot_connected = false
         log("Socket disconnected")
+        if self.on_disconnected then pcall(self.on_disconnected) end
     end)
 
     c:set_socket_error_handler(function(err)
@@ -213,6 +214,7 @@ function Client:_register_handlers()
             reason_str = tostring(reasons)
         end
         log("ERROR: Slot connection refused: " .. reason_str)
+        if self.on_slot_refused then pcall(self.on_slot_refused, reason_str) end
     end)
 
     c:set_items_received_handler(function(items)
@@ -301,11 +303,17 @@ function Client:_on_print_json(data)
                         text_parts[#text_parts + 1] = alias or ("Player" .. pid)
                     elseif ptype == "item_id" then
                         local iid = tonumber(text) or 0
-                        local name = self._client:get_item_name(iid, self.game)
+                        -- Resolve the owning player's game for correct item name lookup
+                        local owner = tonumber(part.player) or 0
+                        local game = (owner > 0 and self._client:get_player_game(owner)) or self.game
+                        local name = self._client:get_item_name(iid, game)
                         text_parts[#text_parts + 1] = name or ("Item#" .. iid)
                     elseif ptype == "location_id" then
                         local lid = tonumber(text) or 0
-                        local name = self._client:get_location_name(lid, self.game)
+                        -- Resolve the owning player's game for correct location name lookup
+                        local owner = tonumber(part.player) or 0
+                        local game = (owner > 0 and self._client:get_player_game(owner)) or self.game
+                        local name = self._client:get_location_name(lid, game)
                         text_parts[#text_parts + 1] = name or ("Location#" .. lid)
                     else
                         text_parts[#text_parts + 1] = text
@@ -395,6 +403,41 @@ function Client:_process_outgoing()
         log("Sent status: " .. tostring(self._outgoing_status))
         self._outgoing_status = nil
     end
+
+    -- DeathLink bounce
+    if self._outgoing_deathlink then
+        local dl = self._outgoing_deathlink
+        self._outgoing_deathlink = nil
+        local bounce_data = {
+            time = os.time(),
+            source = dl.source or self.slot or "Crab Champions",
+        }
+        if dl.cause and dl.cause ~= "" then
+            bounce_data.cause = dl.cause
+        end
+        local ok, err = pcall(function()
+            self._client:Bounce(bounce_data, {}, {}, {"DeathLink"})
+        end)
+        if ok then
+            log("Sent DeathLink from " .. tostring(bounce_data.source)
+                .. (bounce_data.cause and (": " .. bounce_data.cause) or ""))
+        else
+            log("DeathLink send error: " .. tostring(err))
+        end
+    end
+
+    -- Tag update (re-call ConnectSlot with new tags without disconnecting)
+    if self._outgoing_tag_update then
+        self._outgoing_tag_update = nil
+        local ok, err = pcall(function()
+            self._client:ConnectSlot(self.slot, self.password, self.items_handling, self.tags, self.version)
+        end)
+        if ok then
+            log("Updated tags: " .. table.concat(self.tags, ", "))
+        else
+            log("Tag update error: " .. tostring(err))
+        end
+    end
 end
 
 function Client:_apply_pending_items()
@@ -436,20 +479,13 @@ function Client:_execute_command(cmd, args)
         log("Disconnected by user")
 
     elseif cmd == "connect" then
-        -- Reload config so any edits take effect
-        if self._config_path then
-            local config = APConfig.load(self._config_path)
-            self.server = config.server or self.server
-            self.slot = config.slot or self.slot
-            self.password = config.password or self.password
-            if config.tags and type(config.tags) == "table" then
-                self.tags = config.tags
-            end
-        end
+        -- server/slot/password are already set by the caller (F3 reads from
+        -- overlay inputs, F6 uses current values).  Only reload from config
+        -- file if the caller explicitly asks via reload_and_connect.
         -- Reset state for fresh connection
         self._connected = false
         self._slot_connected = false
-        self._applied_index = 0
+        self._applied_index = -1
         self._pending_items = {}
         self._checked = {}
         self.enabled = true
@@ -462,9 +498,6 @@ function Client:_execute_command(cmd, args)
             self.server = config.server or self.server
             self.slot = config.slot or self.slot
             self.password = config.password or self.password
-            if config.tags and type(config.tags) == "table" then
-                self.tags = config.tags
-            end
             log("Config reloaded (server=" .. self.server .. ", slot=" .. self.slot .. ")")
         else
             log("ERROR: No config path stored — cannot reload")
@@ -523,6 +556,14 @@ end
 ---@param status number Status code
 function Client:send_status(status)
     self._outgoing_status = status
+end
+
+--- Update connection tags (e.g., to add/remove DeathLink).
+--- Re-calls ConnectSlot with updated tags without disconnecting.
+---@param new_tags table Array of tag strings
+function Client:update_tags(new_tags)
+    self.tags = new_tags
+    self._outgoing_tag_update = true
 end
 
 --- Queue a DeathLink bounce.

@@ -57,6 +57,8 @@ M.max_rank = 0
 M.required_rank = 0
 M.run_length = 28
 M.equipment_check_mode = 0  -- 0=regular, 1=filler_only, 2=disabled
+M.greed_item_mode = 0       -- 0=auto, 1=drop, 2=skip
+M.death_link = false
 
 -- Completion requirements: populated by configure()
 M.weapons_for_completion = 1
@@ -77,6 +79,8 @@ function M.configure(slot_data)
     M.required_rank = tonumber(opts.required_rank) or 0
     M.run_length = tonumber(opts.run_length) or 28
     M.equipment_check_mode = tonumber(opts.equipment_check_mode) or 0
+    M.greed_item_mode = tonumber(opts.greed_item_mode) or 0
+    M.death_link = opts.death_link or (slot_data and slot_data.death_link) or false
     M.weapons_for_completion = tonumber(opts.weapons_for_completion) or 1
     M.melee_for_completion = tonumber(opts.melee_for_completion) or 0
     M.ability_for_completion = tonumber(opts.ability_for_completion) or 0
