@@ -124,6 +124,55 @@ local function read_file(path)
     return s
 end
 
+-- ---------------------------------------------------------------
+-- Minimal JSON encoder
+-- ---------------------------------------------------------------
+local function json_encode_value(val, indent, level)
+    local t = type(val)
+    if t == "string" then
+        return '"' .. val:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '\\r'):gsub('\t', '\\t') .. '"'
+    elseif t == "number" then
+        return tostring(val)
+    elseif t == "boolean" then
+        return val and "true" or "false"
+    elseif t == "nil" then
+        return "null"
+    elseif t == "table" then
+        level = level or 0
+        local pad = indent and string.rep("  ", level + 1) or ""
+        local pad_close = indent and string.rep("  ", level) or ""
+        local sep = indent and ",\n" or ", "
+        local nl = indent and "\n" or ""
+
+        -- Detect array vs object
+        if #val > 0 or next(val) == nil then
+            -- Array (or empty table)
+            local items = {}
+            for _, v in ipairs(val) do
+                items[#items + 1] = pad .. json_encode_value(v, indent, level + 1)
+            end
+            if #items == 0 then return "[]" end
+            return "[" .. nl .. table.concat(items, sep) .. nl .. pad_close .. "]"
+        else
+            -- Object
+            local items = {}
+            -- Sort keys for stable output
+            local keys = {}
+            for k in pairs(val) do keys[#keys + 1] = k end
+            table.sort(keys)
+            for _, k in ipairs(keys) do
+                items[#items + 1] = pad .. '"' .. tostring(k) .. '": ' .. json_encode_value(val[k], indent, level + 1)
+            end
+            return "{" .. nl .. table.concat(items, sep) .. nl .. pad_close .. "}"
+        end
+    end
+    return "null"
+end
+
+local function json_encode(val)
+    return json_encode_value(val, true, 0)
+end
+
 --- Load config from a JSON file path.
 --- Falls back to defaults for any missing keys.
 ---@param path string Absolute or relative path to ap_config.json
@@ -151,6 +200,47 @@ function APConfig.load(path)
     end
 
     return config
+end
+
+--- Save connection details back to the config file.
+--- Only writes the user-facing fields (server, slot, password).
+---@param path string Path to ap_config.json
+---@param server string Server address
+---@param slot string Slot/player name
+---@param password string Password (may be empty)
+function APConfig.save(path, server, slot, password)
+    -- Read existing config to preserve any extra fields
+    local config = {}
+    local raw = read_file(path)
+    if raw and raw ~= "" then
+        local ok, parsed = pcall(json_decode, raw)
+        if ok and type(parsed) == "table" then
+            config = parsed
+        end
+    end
+
+    -- Update connection fields
+    config.server = server or config.server or DEFAULTS.server
+    config.slot = slot or config.slot or DEFAULTS.slot
+    config.password = password or config.password or DEFAULTS.password
+
+    -- Ensure defaults for other keys
+    for k, v in pairs(DEFAULTS) do
+        if config[k] == nil then
+            config[k] = v
+        end
+    end
+
+    -- Write back
+    local json_str = json_encode(config)
+    local f = io.open(path, "wb")
+    if f then
+        f:write(json_str .. "\n")
+        f:close()
+        print("[APConfig] Saved config to " .. tostring(path))
+    else
+        print("[APConfig] WARNING: Could not write to " .. tostring(path))
+    end
 end
 
 return APConfig

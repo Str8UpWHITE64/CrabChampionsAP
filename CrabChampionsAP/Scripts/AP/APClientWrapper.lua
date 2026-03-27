@@ -148,6 +148,10 @@ function APClientWrapper.new(uuid, game_name, server)
         return safe_call("get_player_alias", slot)
     end
 
+    function wrapped:get_player_game(slot)
+        return safe_call("get_player_game", slot)
+    end
+
     function wrapped:get_item_name(item_id, game_name)
         return safe_call("get_item_name", item_id, game_name or "")
     end

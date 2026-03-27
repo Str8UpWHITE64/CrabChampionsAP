@@ -248,6 +248,20 @@ weapon_mod_item_names = [item.name for item in _weapon_mod_items]
 melee_mod_item_names = [item.name for item in _melee_mod_items]
 ability_mod_item_names = [item.name for item in _ability_mod_items]
 
+# Greed items: cannot be dropped once picked up.
+# When greed_item_mode == "skip", these are excluded from the item/location pools.
+GREED_ITEM_NAMES: frozenset = frozenset({
+    # Perks
+    "Big Bones", "Bribe", "Brute Force", "Damage Seeker", "Double Trouble",
+    "Glass Cannon", "Juggernaut", "Leap Of Faith", "Limited Loot", "Rising Star",
+    "Slippery Slope", "Up The Ante", "Workaholic",
+    # Relics
+    "High Roller", "Hoarder Backpack", "Overspill Goblet", "Ring Of Favoritism",
+    "Ring Of Tankiness", "Trigger Ring", "Upgrade Ring",
+    # Melee Mods
+    "Brawler",
+})
+
 # Stackable categories: perks, weapon mods, melee mods, ability mods
 # These items can appear more than once in the pool.
 _stackable_items: List[CrabChampsItemData] = (
@@ -256,7 +270,8 @@ _stackable_items: List[CrabChampsItemData] = (
 
 
 def BuildItemPool(multiworld, count, options,
-                  pool_weapons=None, pool_melee=None, pool_abilities=None) -> List[CrabChampsItemData]:
+                  pool_weapons=None, pool_melee=None, pool_abilities=None,
+                  exclude_names=None) -> List[CrabChampsItemData]:
     """Build an item pool of exactly `count` items, respecting options.
 
     Pool construction order:
@@ -266,6 +281,9 @@ def BuildItemPool(multiworld, count, options,
       4. One copy of every stackable item (perks, weapon mods, melee mods)
       5. Distribute remaining slots evenly across stackable items
          so no single item dominates the pool.
+
+    Items in `exclude_names` (e.g., greed items when greed_item_mode == skip)
+    are excluded from steps 3-5.
     """
     if pool_weapons is None:
         pool_weapons = []
@@ -273,6 +291,8 @@ def BuildItemPool(multiworld, count, options,
         pool_melee = []
     if pool_abilities is None:
         pool_abilities = []
+    if exclude_names is None:
+        exclude_names = frozenset()
 
     item_pool: List[CrabChampsItemData] = []
     pool_names: List[str] = []  # parallel tracker for fast lookups
@@ -284,7 +304,7 @@ def BuildItemPool(multiworld, count, options,
     # 1. Guaranteed items from options
     if options.guaranteed_items.value:
         for item_name in options.guaranteed_items.value:
-            if item_name in item_dictionary:
+            if item_name in item_dictionary and item_name not in exclude_names:
                 _add(item_dictionary[item_name])
 
     # 2. Pool equipment: only the randomly-selected subset becomes AP items
@@ -294,12 +314,12 @@ def BuildItemPool(multiworld, count, options,
 
     # 4. Relics — one copy each (they don't stack)
     for item in _relic_items:
-        if item.name not in pool_names:
+        if item.name not in pool_names and item.name not in exclude_names:
             _add(item)
 
     # 5. One copy of every stackable item not yet in pool
     for item in _stackable_items:
-        if item.name not in pool_names:
+        if item.name not in pool_names and item.name not in exclude_names:
             _add(item)
 
     remaining = count - len(item_pool)
@@ -329,19 +349,21 @@ def BuildItemPool(multiworld, count, options,
 
         # Distribute stackable slots evenly across stackable items
         if stackable_slots > 0:
-            stackable_count = len(_stackable_items)
-            base_copies = stackable_slots // stackable_count
-            extras = stackable_slots % stackable_count
+            eligible_stackable = [it for it in _stackable_items if it.name not in exclude_names]
+            stackable_count = len(eligible_stackable)
+            if stackable_count > 0:
+                base_copies = stackable_slots // stackable_count
+                extras = stackable_slots % stackable_count
 
-            for item in _stackable_items:
-                for _ in range(base_copies):
-                    _add(item)
+                for item in eligible_stackable:
+                    for _ in range(base_copies):
+                        _add(item)
 
-            if extras > 0:
-                extra_items = list(_stackable_items)
-                multiworld.random.shuffle(extra_items)
-                for item in extra_items[:extras]:
-                    _add(item)
+                if extras > 0:
+                    extra_items = list(eligible_stackable)
+                    multiworld.random.shuffle(extra_items)
+                    for item in extra_items[:extras]:
+                        _add(item)
 
     # Trim if somehow over (shouldn't happen, but safety)
     item_pool = item_pool[:count]
