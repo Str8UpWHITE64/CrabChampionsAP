@@ -12,7 +12,7 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 - **Location Checks** — Completing islands, finishing runs at specific ranks, and using specific equipment all count as checks that send items to other players.
 - **Ranked Difficulty Tiers** — Supports all 8 difficulty ranks from Bronze through Prismatic, with configurable check ranges.
 - **Cascade Mode** — Completing an island at a higher rank can automatically count for all lower ranks.
-- ~~**Death Link** — Optional synchronized death across all connected players.~~ Currently not implemented.
+- **Death Link** — Optional synchronized death across all connected players.
 - **Configurable Item Pool** — Control how many weapons/melee/abilities are in the pool, what filler items look like, and more.
 
 ## Requirements
@@ -33,25 +33,19 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 
 ### Game Mod (Lua/UE4SS)
 
-1. Download [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip) and unzip it.
-2. Navigate to Steam Library > Right-click Crab Champions > Properties > Local Files > Browse, then go to ``CrabChampions\Binaries\Win64`` and copy the contents of the UE4SS zip folder into the game's Win64 directory.
-3. Edit `UE4SS-settings.ini` and set `ConsoleEnabled = 1` to enable the game's console, which will show you Archipelago connection status and checks received.
-4. Download the CrabChampionsAP.zip from the latest release and unzip it. Copy the `CrabChampionsAP` folder into the `Mods` directory from the previous step.
-5. Edit `Scripts/ap_config.json` with your Archipelago server address, slot name, and password:
-   ```json
-   {
-     "address": "localhost:38281",
-     "slot": "YourSlotName",
-     "password": ""
-   }
+1. Download [UE4SS v3.0.1](https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip) and unzip it.
+2. Navigate to Steam Library > Right-click Crab Champions > Properties > Local Files > Browse, then go to `CrabChampions\Binaries\Win64` and copy the contents of the UE4SS zip into the game's `Win64` directory.
+3. Edit `UE4SS-settings.ini` and set `ConsoleEnabled = 1` to enable the debug console.
+4. Download **CrabChampionsAP.zip** from the [latest release](https://github.com/Str8UpWHITE64/CrabChampionsAP/releases) and unzip it. Copy all three items into the `Mods` directory:
    ```
-6. Under the `Mods` directory, open `mods.txt` and add `CrabChampionsAP` to the list of mods to load like this:
+   Mods/
+   ├── CrabChampionsAP/    (Lua mod — AP client, overlay, game hooks)
+   ├── CrabInvMngmt/       (C++ mod — inventory management)
+   └── mods.txt             (enables both mods in the correct load order)
    ```
-   CrabChampionsAP : 1
-   ```
-7. ~~Download the lau-apclient 7z from [here](https://github.com/black-sliver/lua-apclientpp/releases/download/v0.6.4/lua54.7z), extract it, and copy the lua-apclientpp.dll file from the `lua54\lua54-clang64-static` folder and place it in the AP folder under `CrabChampionsAP\Scripts\AP`.~~ No longer needed, included with the zip.
-
-8. Launch the game!  You will automatically connect to the server after a few seconds at the lobby.  You will see output in the console window that opens along with the game.
+   > **Note:** The included `mods.txt` replaces the default one. It ensures `CrabInvMngmt` loads before `CrabChampionsAP` so the C++ inventory functions are available when the Lua mod starts. If you have other UE4SS mods installed, merge the entries manually.
+5. Launch the game! Press **F4** to open the connection panel, enter your server details, and press **F3** to connect.
+   - Your connection details are saved automatically after a successful connection, so you only need to enter them once.
 
 ## Configuration Options
 
@@ -174,11 +168,19 @@ Controls what percentage of extra item pool slots are filled with Crystal Cache 
 
 > **Example:** At `75`, three-quarters of the filler slots are crystal rewards and one-quarter are extra perk/mod stacks. At `0`, all filler is perks/mods. At `100`, all filler is crystals.
 
+#### `greed_item_mode` (Default: auto)
+Controls how Greed items are handled. Greed items (certain perks, relics, and melee mods) cannot be dropped once picked up, making them a permanent commitment.
+- **auto** — Greed items are added directly to your inventory when received from AP, just like any other item.
+- **drop** — Greed items are spawned on the floor in the lobby for you to pick up manually, so you can choose whether to pick them up or not.
+- **skip** — Greed items are removed from the item and location pools entirely. You can still find them naturally in-game.
+
+> **Example:** With `greed_item_mode: drop`, when you receive a Greed perk like "Glass Cannon" from AP, it appears on the ground near you instead of being auto-added. You can pick it up if you want it, or leave it.
+
 #### `guaranteed_items` (Default: empty)
 A dictionary of specific items guaranteed to appear in the item pool.
 
 #### `death_link` (Default: false)
-~~When enabled, dying in Crab Champions sends a death to all connected Death Link players, and deaths from other players kill you.~~ **Currently not implemented.**
+When enabled, dying in Crab Champions sends a death to all connected Death Link players, and deaths from other players kill you. Deaths are only sent and received during runs — not in the lobby.
 
 ## Item Categories
 
@@ -229,10 +231,7 @@ With the maximum settings selected, there are about 15,100 possible checks.
 
 
 ## Bugs
-- The game may occasionally crash when receiving multiple perks or mods at once.  This is a known issue with the way the mod spawns items and is being worked on.
-- You cannot continue a previous run in game.  If you leave to the lobby or crash, you need to start a new run.  This is due to how island tracking is done, and I will be working on finding other solutions.
-- Due to the crashing, the default item pool is currently set to be 75% crystals.  This is to reduce the number of items received at once and mitigate the crashes. Lower this at your own risk.
-- Deathlink currently doesn't do anything.  It doesn't send or receive deaths.  
+- None so far!  Report any issues you find in the Discord thread or on GitHub.
 
 ## Credits
 

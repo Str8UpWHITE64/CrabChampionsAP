@@ -45,6 +45,19 @@ local function get_ps()
     return nil
 end
 
+--- Read the current island number from CrabGS.CurrentIsland.
+--- This is the game's authoritative counter, so it persists across
+--- save/load and doesn't depend on counting portals.
+local function get_current_island()
+    local ok, gs = pcall(function() return FindFirstOf("CrabGS") end)
+    if not ok or not gs or not gs:IsValid() then return 0 end
+
+    local i_ok, island = pcall(function() return gs.CurrentIsland end)
+    if not i_ok then return 0 end
+
+    return tonumber(island) or 0
+end
+
 --- Read the current rank from CrabGS.Difficulty (ECrabRank enum).
 --- The Difficulty property already stores the rank index directly:
 ---   0=Bronze, 1=Silver, 2=Gold, 3=Sapphire, 4=Emerald,
@@ -62,13 +75,23 @@ local function get_current_rank()
         return 0
     end
 
-    local rank = tonumber(diff) or 0
-    -- Clamp to valid range 0-7
-    if rank < 0 then rank = 0 end
+    local raw = tonumber(diff) or 0
+    -- ECrabRank enum is 1-indexed: None=0, Bronze=1, Silver=2, ..., Prismatic=8
+    -- Our AP rank is 0-indexed: Bronze=0, Silver=1, ..., Prismatic=7
+    -- Subtract 1, clamping to 0 minimum (None -> Bronze)
+    local rank = math.max(0, raw - 1)
     if rank > 7 then rank = 7 end
-    log("Rank detection: Difficulty=" .. tostring(diff)
-        .. " rank=" .. tostring(rank)
-        .. " (" .. (LocationData.RANK_NAMES[rank + 1] or "?") .. ")")
+
+    -- Also read modifier count for debugging
+    local mod_count = 0
+    pcall(function()
+        local mods = gs.DifficultyModifiers
+        if mods then mod_count = mods:GetArrayNum() end
+    end)
+
+    -- Verbose rank logging only on first call or rank change
+    log("Rank: " .. (LocationData.RANK_NAMES[rank + 1] or "?")
+        .. " (modifiers=" .. tostring(mod_count) .. ")")
     return rank
 end
 
@@ -295,6 +318,13 @@ function M.install(ap_client)
         local remove_fn = full_name
         LoopAsync(200, function()
             remove_item(remove_kind, remove_fn)
+            -- Retry overflow items — removing an item freed a slot
+            pcall(function()
+                local ItemApply = require("AP/ItemApply")
+                if ItemApply.overflow_count() > 0 then
+                    ItemApply.retry_overflow()
+                end
+            end)
             return true
         end)
     end)
@@ -481,41 +511,49 @@ function M.install(ap_client)
     end
 
     -- ---------------------------------------------------------------
-    -- Island clear hook (rank-aware)
+    -- Island clear hook (reads CurrentIsland from CrabGS)
     -- ---------------------------------------------------------------
     RegisterHook("/Script/CrabChampions.CrabPC:ClientOnClearedIsland", function(Context)
-        island_counter = island_counter + 1
-        send_island_checks(island_counter, "Island cleared")
+        local island = get_current_island()
+        island_counter = island  -- keep in sync for get_island_counter()
+        send_island_checks(island, "Island cleared")
 
         -- Check if the NEXT island is a shop (no combat clear will fire).
         -- If so, flag it so the portal hook can send the shop check.
-        if LocationData.SHOP_ISLANDS[island_counter + 1] then
-            pending_shop_island = island_counter + 1
-            log("Next island (" .. (island_counter + 1) .. ") is a shop — will send check on portal entry")
+        if LocationData.SHOP_ISLANDS[island + 1] then
+            pending_shop_island = island + 1
+            log("Next island (" .. (island + 1) .. ") is a shop — will send check on portal entry")
         end
+
+        -- Retry overflow items — clearing an island may grant new inventory slots
+        LoopAsync(500, function()
+            local ok, ItemApply = pcall(require, "AP/ItemApply")
+            if ok and ItemApply and ItemApply.retry_overflow then
+                ItemApply.retry_overflow()
+            end
+            return true
+        end)
     end)
 
     -- ---------------------------------------------------------------
-    -- Run boundary detection: reset island counter on new run
+    -- Portal detection: shop islands + lobby transitions
     -- ---------------------------------------------------------------
 
-    -- Detect leaving the lobby via portal = new run starting.
-    -- Also handles shop island checks: when the player enters a portal
-    -- after clearing the island before a shop, send the shop checks.
     RegisterHook("/Script/CrabChampions.CrabPC:ClientOnEnteredPortal", function(Context, ...)
         -- Lobby detection: if lobby actors exist, this is a new run
         local lobby_ok, lobby_actors = pcall(FindAllOf, "BP_Pickup_Lobby_C")
         if lobby_ok and lobby_actors and #lobby_actors > 0 then
-            log("Portal from lobby detected — new run starting (island counter was " .. island_counter .. ")")
+            local gs_island = get_current_island()
+            log("Portal from lobby detected — new run starting (GS island=" .. gs_island .. ")")
             island_counter = 0
-            -- Signal ItemApply that we've left the lobby (no more spawning mid-run)
+            -- Signal ItemApply that we've left the lobby
             local ia_ok, ItemApply = pcall(require, "AP/ItemApply")
             if ia_ok and ItemApply then ItemApply.in_lobby = false end
             pending_shop_island = nil
             return
         end
 
-        -- Shop island handling: send checks for the shop and bump counter
+        -- Shop island handling: read island from GS after portal
         if pending_shop_island then
             local shop_num = pending_shop_island
             pending_shop_island = nil
@@ -556,7 +594,75 @@ function M.install(ap_client)
         log("NotifyOnNewObject for CheatManager not available — run items won't re-apply on lobby return")
     end
 
+    -- Hook inventory removal functions to retry overflow items when slots free up.
+    -- OnRep_Inventory doesn't fire for local changes on a listen server, so we
+    -- hook the actual removal RPCs and drop/salvage functions instead.
+    local function on_inventory_freed()
+        pcall(function()
+            local ItemApply = require("AP/ItemApply")
+            if ItemApply.overflow_count() > 0 then
+                -- Delay to let the removal complete before retrying
+                LoopAsync(500, function()
+                    ItemApply.retry_overflow()
+                    return true
+                end)
+            end
+        end)
+    end
+
+    -- CrabPS removal functions (called when dropping individual items)
+    local remove_hooks = {
+        "/Script/CrabChampions.CrabPS:ServerRemovePerk",
+        "/Script/CrabChampions.CrabPS:ServerRemoveWeaponMod",
+        "/Script/CrabChampions.CrabPS:ServerRemoveMeleeMod",
+        "/Script/CrabChampions.CrabPS:ServerRemoveAbilityMod",
+        "/Script/CrabChampions.CrabPS:ServerRemoveRelic",
+    }
+    for _, hook_path in ipairs(remove_hooks) do
+        pcall(function()
+            RegisterHook(hook_path, function(Context)
+                on_inventory_freed()
+            end)
+        end)
+    end
+
+    -- CrabPlayerC drop/salvage functions
+    pcall(function()
+        RegisterHook("/Script/CrabChampions.CrabPlayerC:ServerDropPickup", function(Context)
+            on_inventory_freed()
+        end)
+    end)
+    pcall(function()
+        RegisterHook("/Script/CrabChampions.CrabPlayerC:ServerSalvage", function(Context)
+            on_inventory_freed()
+        end)
+    end)
+
+    -- Also keep OnRep_Inventory as a fallback for any other inventory changes
+    pcall(function()
+        RegisterHook("/Script/CrabChampions.CrabPS:OnRep_Inventory", function(Context)
+            on_inventory_freed()
+        end)
+    end)
+
     log("Pickup and island watch installed")
+end
+
+--- Send a pickup location check by DA full_name.
+--- Called by ItemApply when items are granted via C++ mod (bypassing ClientOnPickedUpPickup).
+---@param full_name string The DA full name (e.g., "CrabPerkDA /Game/Blueprint/...")
+function M.send_pickup_check(full_name)
+    if not client then return end
+    if not full_name then return end
+
+    local location_id, kind = LocationData.from_da(full_name)
+    if not location_id then return end
+
+    if client:is_location_checked(location_id) then return end
+
+    local display = LocationData.display_name(kind, full_name)
+    log("Location check (granted): " .. display .. " → " .. tostring(location_id))
+    client:send_check(location_id)
 end
 
 --- Reset the island counter (call on new run / return to lobby).
@@ -566,8 +672,11 @@ function M.reset_island_counter()
 end
 
 --- Get the current island count.
+--- Prefers the game's CrabGS.CurrentIsland, falls back to our local counter.
 ---@return number
 function M.get_island_count()
+    local gs_island = get_current_island()
+    if gs_island > 0 then return gs_island end
     return island_counter
 end
 

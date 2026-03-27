@@ -45,9 +45,23 @@ M._run_crystals = 0
 -- Items received mid-run are tracked but not spawned until lobby return.
 M.in_lobby = true
 
--- Queue for items waiting to be spawned (processed sequentially)
+-- Queue for items waiting to be spawned (processed sequentially, fallback only)
 local spawn_queue = {}
 local spawn_busy = false
+
+-- Queue for C++ mod items waiting to be applied in batch
+local cpp_pending_queue = {}
+local cpp_flush_scheduled = false
+
+-- Per-type overflow queues for items that failed due to full inventory.
+-- Keyed by array name so each inventory type retries independently.
+local cpp_overflow_queues = {
+    Perks = {},
+    Relics = {},
+    WeaponMods = {},
+    MeleeMods = {},
+    AbilityMods = {},
+}
 
 -------------------------------------------------------------
 -- Player / controller lookups
@@ -117,11 +131,24 @@ end
 -------------------------------------------------------------
 
 --- Check if a DA full_name is a greed item (has /Greed/ in its asset path).
---- Greed items can't be dropped once picked up, so we spawn them without
---- auto-collecting, letting the player choose when to pick them up.
+--- Greed items can't be dropped once picked up, so handling depends on greed_mode.
 local function is_greed_item(full_name)
     if not full_name then return false end
     return full_name:find("/Greed/") ~= nil
+end
+
+--- Get the greed item mode from slot_data (via LocationData).
+--- Returns 0=auto, 1=drop, 2=skip.
+local GREED_AUTO = 0
+local GREED_DROP = 1
+local GREED_SKIP = 2
+
+local function get_greed_mode()
+    local ok, LocationData = pcall(require, "AP/LocationData")
+    if ok and LocationData then
+        return LocationData.greed_item_mode or GREED_AUTO
+    end
+    return GREED_AUTO
 end
 
 --- Spawn a pickup at the player and optionally auto-collect it.
@@ -238,10 +265,168 @@ local function queue_spawn(pickup_da, item_name, full_name)
 end
 
 -------------------------------------------------------------
+-- C++ inventory mod integration
+-------------------------------------------------------------
+
+--- Category -> (ArrayName, DAFieldName) mapping for the C++ mod
+local CPP_ARRAY_MAP = {
+    -- [CAT.PERK]        = { "Perks",       "PerkDA" },
+    -- [CAT.RELIC]       = { "Relics",      "RelicDA" },
+    -- [CAT.WEAPON_MOD]  = { "WeaponMods",  "WeaponModDA" },
+    -- [CAT.MELEE_MOD]   = { "MeleeMods",   "MeleeModDA" },
+    -- [CAT.ABILITY_MOD] = { "AbilityMods", "AbilityModDA" },
+}
+
+-- Populated on first use (after ItemData.CATEGORY is available)
+local function get_cpp_array_info(cat)
+    local CAT = ItemData.CATEGORY
+    if not CPP_ARRAY_MAP[CAT.PERK] then
+        CPP_ARRAY_MAP[CAT.PERK]        = { "Perks",       "PerkDA" }
+        CPP_ARRAY_MAP[CAT.RELIC]       = { "Relics",      "RelicDA" }
+        CPP_ARRAY_MAP[CAT.WEAPON_MOD]  = { "WeaponMods",  "WeaponModDA" }
+        CPP_ARRAY_MAP[CAT.MELEE_MOD]   = { "MeleeMods",   "MeleeModDA" }
+        CPP_ARRAY_MAP[CAT.ABILITY_MOD] = { "AbilityMods", "AbilityModDA" }
+    end
+    return CPP_ARRAY_MAP[cat]
+end
+
+--- Check if the C++ inventory mod is available
+local function has_cpp_mod()
+    return AP_AddInventoryItem ~= nil
+end
+
+--- Add an item via the C++ inventory mod. Returns true on success.
+--- Does NOT refresh UI — caller should call AP_RefreshInventoryUI after batch.
+--- Also sends the location check for the item (since we bypass ClientOnPickedUpPickup).
+local function cpp_add_item(info)
+    local arr_info = get_cpp_array_info(info.cat)
+    if not arr_info then return false end
+
+    local da_addr = info.da:GetAddress()
+    if not da_addr then
+        log("Could not get DA address for " .. info.name)
+        return false
+    end
+
+    local ok, result = pcall(AP_AddInventoryItem, da_addr, arr_info[1], arr_info[2], 1)
+    if ok and result then
+        log("Added via C++ mod: " .. info.name .. " -> " .. arr_info[1])
+
+        -- Send location check (since we bypassed the pickup hook)
+        pcall(function()
+            local PickupWatch = require("AP/PickupWatch")
+            PickupWatch.send_pickup_check(info.full_name)
+        end)
+
+        return true
+    else
+        log("C++ mod failed for " .. info.name .. ": " .. tostring(result))
+        return false
+    end
+end
+
+-------------------------------------------------------------
+-- Batch flush: apply all queued C++ items at once
+-------------------------------------------------------------
+
+--- Flush all pending C++ items. Called after a short delay to batch
+--- multiple items received in rapid succession.
+local function flush_cpp_queue()
+    cpp_flush_scheduled = false
+    if #cpp_pending_queue == 0 then return end
+
+    local items = cpp_pending_queue
+    cpp_pending_queue = {}
+
+    log("Flushing " .. #items .. " queued items via C++ mod...")
+
+    local applied = 0
+    local overflowed = 0
+    for _, info in ipairs(items) do
+        if cpp_add_item(info) then
+            applied = applied + 1
+        else
+            -- Item couldn't be added (inventory full) — queue for retry by type
+            local arr_info = get_cpp_array_info(info.cat)
+            local queue_key = arr_info and arr_info[1] or "Perks"
+            if cpp_overflow_queues[queue_key] then
+                table.insert(cpp_overflow_queues[queue_key], info)
+            end
+            overflowed = overflowed + 1
+        end
+    end
+
+    -- Single UI refresh after all items are added
+    if applied > 0 then
+        pcall(AP_RefreshInventoryUI)
+    end
+
+    local total_overflow = M.overflow_count()
+    if overflowed > 0 then
+        log("Batch complete: " .. applied .. " applied, " .. overflowed .. " waiting for free slots (" .. total_overflow .. " total overflow)")
+    else
+        log("Batch complete: " .. applied .. " applied")
+    end
+end
+
+--- Retry overflow queue items across all inventory types.
+--- Each type retries independently so a full perk inventory doesn't block weapon mods.
+function M.retry_overflow()
+    if M.overflow_count() == 0 then return end
+    if not has_cpp_mod() then return end
+
+    local total_applied = 0
+    for queue_name, queue in pairs(cpp_overflow_queues) do
+        if #queue > 0 then
+            local still_waiting = {}
+            local applied = 0
+            for _, info in ipairs(queue) do
+                if cpp_add_item(info) then
+                    applied = applied + 1
+                else
+                    table.insert(still_waiting, info)
+                end
+            end
+            cpp_overflow_queues[queue_name] = still_waiting
+            total_applied = total_applied + applied
+            if applied > 0 then
+                log("Overflow retry [" .. queue_name .. "]: " .. applied .. " applied, " .. #still_waiting .. " still waiting")
+            end
+        end
+    end
+
+    if total_applied > 0 then
+        pcall(AP_RefreshInventoryUI)
+    end
+end
+
+--- Get the total number of items waiting across all overflow queues.
+function M.overflow_count()
+    local total = 0
+    for _, queue in pairs(cpp_overflow_queues) do
+        total = total + #queue
+    end
+    return total
+end
+
+--- Queue an item for batch C++ application.
+--- Schedules a flush after a short delay so rapid-fire items are batched.
+local function queue_cpp_item(info)
+    table.insert(cpp_pending_queue, info)
+    if not cpp_flush_scheduled then
+        cpp_flush_scheduled = true
+        LoopAsync(200, function()
+            flush_cpp_queue()
+            return true  -- run once
+        end)
+    end
+end
+
+-------------------------------------------------------------
 -- Public API
 -------------------------------------------------------------
 
---- Apply an AP item: equip weapons immediately, spawn+collect perks/mods/relics.
+--- Apply an AP item: equip weapons immediately, add perks/mods/relics via C++ mod.
 ---@param ap_item_id number The AP item ID
 function M.apply_item(ap_item_id)
     -- Ensure DA maps are built
@@ -321,18 +506,55 @@ function M.apply_item(ap_item_id)
 
     M.unlocked[info.full_name] = true
 
+    -- Handle greed items based on greed_item_mode from slot_data
+    local is_greed = is_greed_item(info.full_name)
+    if is_greed then
+        local greed_mode = get_greed_mode()
+        if greed_mode == GREED_SKIP then
+            -- Should never happen: skip mode excludes greed items from the
+            -- AP item/location pools entirely during world generation.
+            -- Safety net in case of manual /send or other edge cases.
+            log("Greed item ignored (mode=skip): " .. info.name)
+            return  -- Do NOT add to _run_items
+        elseif greed_mode == GREED_DROP then
+            -- Track as greed_drop so reapply_run_items handles it correctly
+            table.insert(M._run_items, {
+                ap_item_id = ap_item_id,
+                name = info.name,
+                da = info.da,
+                full_name = info.full_name,
+                cat = info.cat,
+                greed_drop = true,
+            })
+            if M.in_lobby then
+                queue_spawn(info.da, info.name, info.full_name)
+            else
+                log("Queued greed item for lobby (mode=drop): " .. info.name)
+            end
+            return
+        end
+        -- GREED_AUTO: fall through to normal handling below
+    end
+
     -- Track for re-application on new run
     table.insert(M._run_items, {
         ap_item_id = ap_item_id,
         name = info.name,
         da = info.da,
         full_name = info.full_name,
+        cat = info.cat,
     })
 
-    if M.in_lobby then
-        queue_spawn(info.da, info.name, info.full_name)
+    -- Try C++ mod first (instant, crash-free — works mid-run and in lobby)
+    -- Fall back to spawn+collect (lobby only) if C++ mod not available
+    if has_cpp_mod() then
+        queue_cpp_item(info)
     else
-        log("Queued for lobby: " .. info.name)
+        if M.in_lobby then
+            queue_spawn(info.da, info.name, info.full_name)
+        else
+            log("Queued for lobby (no C++ mod): " .. info.name)
+        end
     end
 end
 
@@ -358,11 +580,31 @@ function M.reapply_run_items()
     end
 
     log("Re-applying " .. #M._run_items .. " run items for new run...")
-    for _, item in ipairs(M._run_items) do
-        if item.da then
-            queue_spawn(item.da, item.name, item.full_name)
-        else
-            log("Skipping " .. item.name .. " — no DA reference")
+    if has_cpp_mod() then
+        -- Batch all items through C++ mod, respecting greed mode
+        for _, item in ipairs(M._run_items) do
+            if item.greed_drop then
+                -- Greed drop mode: spawn on floor for manual pickup
+                if item.da then
+                    queue_spawn(item.da, item.name, item.full_name)
+                end
+            elseif item.da and item.cat then
+                table.insert(cpp_pending_queue, item)
+            elseif item.da then
+                queue_spawn(item.da, item.name, item.full_name)
+            else
+                log("Skipping " .. item.name .. " — no DA reference")
+            end
+        end
+        -- Flush immediately for re-apply (no need to wait)
+        flush_cpp_queue()
+    else
+        for _, item in ipairs(M._run_items) do
+            if item.da then
+                queue_spawn(item.da, item.name, item.full_name)
+            else
+                log("Skipping " .. item.name .. " — no DA reference")
+            end
         end
     end
 end

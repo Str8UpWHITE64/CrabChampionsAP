@@ -184,6 +184,19 @@ class CrystalCachePercentage(Range):
     default = 75
 
 
+class GreedItemMode(Choice):
+    """Controls how Greed items (perks/mods/relics with the Greed modifier) are handled.
+    Greed items cannot be dropped once picked up, making them a permanent commitment.
+    Auto: Greed items are added directly to your inventory when received from AP.
+    Drop: Greed items are spawned on the floor in the lobby for you to pick up manually.
+    Skip: Greed items are not granted at all — you find them naturally in-game."""
+    display_name = "Greed Item Mode"
+    option_auto = 0
+    option_drop = 1
+    option_skip = 2
+    default = 0
+
+
 class GuaranteedItemsOption(ItemDict):
     """Guarantees that the specified items will be in the item pool"""
     display_name = "Guaranteed Items"
@@ -210,5 +223,6 @@ class CrabChampsOption(PerGameCommonOptions):
     cascade_ranked_checks: CascadeRankedChecks
     # Filler / misc
     crystal_cache_percentage: CrystalCachePercentage
+    greed_item_mode: GreedItemMode
     guaranteed_items: GuaranteedItemsOption
     death_link: DeathLink

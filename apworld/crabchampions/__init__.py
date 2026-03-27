@@ -8,7 +8,7 @@ from worlds.generic.Rules import set_rule
 from .Items import (
     CrabChampsItem, CrabChampsItemCategory, item_dictionary, key_item_names,
     item_descriptions, BuildItemPool, weapon_item_names, melee_item_names,
-    ability_item_names,
+    ability_item_names, GREED_ITEM_NAMES,
 )
 from .Locations import (
     CrabChampsLocation, CrabChampsLocationCategory, location_tables,
@@ -218,6 +218,18 @@ class CrabChampsWorld(World):
         if location.category not in self.enabled_location_categories:
             return False
 
+        # Exclude greed pickup locations when greed_item_mode == skip
+        if self.options.greed_item_mode.value == 2:
+            if location.category in (
+                CrabChampsLocationCategory.PERK,
+                CrabChampsLocationCategory.RELIC,
+                CrabChampsLocationCategory.MELEE_MOD,
+            ):
+                # Extract the item name from location name: "Perk: Leap Of Faith" -> "Leap Of Faith"
+                item_name = location.name.split(": ", 1)[-1] if ": " in location.name else ""
+                if item_name in GREED_ITEM_NAMES:
+                    return False
+
         run_length = self.options.run_length.value
         max_rank = self.options.max_rank.value
         required_rank = self.options.required_rank.value
@@ -390,8 +402,11 @@ class CrabChampsWorld(World):
             if location.category != CrabChampsLocationCategory.EVENT
         )
 
+        # Exclude greed items from pool when greed_item_mode == skip (2)
+        exclude = GREED_ITEM_NAMES if self.options.greed_item_mode.value == 2 else None
         pool = BuildItemPool(self.multiworld, location_count, self.options,
-                             self.pool_weapons, self.pool_melee, self.pool_abilities)
+                             self.pool_weapons, self.pool_melee, self.pool_abilities,
+                             exclude_names=exclude)
         for item_data in pool:
             itempool.append(self.create_item(item_data.name))
 
@@ -786,6 +801,7 @@ class CrabChampsWorld(World):
                 "pool_abilities": self.pool_abilities,
                 "equipment_check_mode": self.options.equipment_check_mode.value,
                 "guaranteed_items": self.options.guaranteed_items.value,
+                "greed_item_mode": self.options.greed_item_mode.value,
                 "death_link": bool(self.options.death_link.value),
             },
             "death_link": bool(self.options.death_link.value),
