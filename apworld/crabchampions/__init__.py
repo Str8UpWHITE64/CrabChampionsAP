@@ -139,12 +139,15 @@ class CrabChampsWorld(World):
 
         # Always-on categories
         self.enabled_location_categories.add(CrabChampsLocationCategory.ISLAND)
-        self.enabled_location_categories.add(CrabChampsLocationCategory.PERK)
-        self.enabled_location_categories.add(CrabChampsLocationCategory.RELIC)
         self.enabled_location_categories.add(CrabChampsLocationCategory.RANK_RUN)
-        self.enabled_location_categories.add(CrabChampsLocationCategory.WEAPON_MOD)
-        self.enabled_location_categories.add(CrabChampsLocationCategory.MELEE_MOD)
-        self.enabled_location_categories.add(CrabChampsLocationCategory.ABILITY_MOD)
+
+        # Pickup categories (perks/relics/mods) — only when pickup_checks is enabled
+        if self.options.pickup_checks.value:
+            self.enabled_location_categories.add(CrabChampsLocationCategory.PERK)
+            self.enabled_location_categories.add(CrabChampsLocationCategory.RELIC)
+            self.enabled_location_categories.add(CrabChampsLocationCategory.WEAPON_MOD)
+            self.enabled_location_categories.add(CrabChampsLocationCategory.MELEE_MOD)
+            self.enabled_location_categories.add(CrabChampsLocationCategory.ABILITY_MOD)
 
         # Ranked island locations always exist (at least for required_rank).
         self.enabled_location_categories.add(CrabChampsLocationCategory.RANKED_ISLAND)
@@ -868,6 +871,7 @@ class CrabChampsWorld(World):
                 "equipment_check_mode": self.options.equipment_check_mode.value,
                 "guaranteed_items": self.options.guaranteed_items.value,
                 "greed_item_mode": self.options.greed_item_mode.value,
+                "pickup_checks": bool(self.options.pickup_checks.value),
                 "progressive_slots": bool(self.options.progressive_slots.value),
                 "starting_perk_slots": self.options.starting_perk_slots.value,
                 "starting_weapon_mod_slots": self.options.starting_weapon_mod_slots.value,

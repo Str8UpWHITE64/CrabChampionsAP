@@ -219,10 +219,16 @@ local function on_slot_connected(slot_data)
 
     -- Activate inventory sanitization so perks/mods/relics picked up in-game
     -- are stripped unless received from the AP server.
+    -- Only active when pickup_checks is on — when off, players keep items normally.
     local inv_sanitize = _G.AP and _G.AP.inv_sanitize or nil
     if inv_sanitize then
-        inv_sanitize.active = true
-        clog("STATUS", "Inventory sanitization active — game-given perks/mods/relics will be stripped until received from AP")
+        if LocationData.pickup_checks then
+            inv_sanitize.active = true
+            clog("STATUS", "Inventory sanitization active — game-given perks/mods/relics will be stripped until received from AP")
+        else
+            inv_sanitize.active = false
+            clog("STATUS", "Pickup checks disabled — inventory sanitization off, items kept normally")
+        end
     end
 end
 

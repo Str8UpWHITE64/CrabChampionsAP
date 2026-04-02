@@ -304,6 +304,9 @@ function M.install(ap_client)
     -- Pickup hook (not rank-dependent)
     -- ---------------------------------------------------------------
     RegisterHook("/Script/CrabChampions.CrabPC:ClientOnPickedUpPickup", function(Context, PickupDA)
+        -- When pickup checks are disabled, don't process pickups as checks
+        if not LocationData.pickup_checks then return end
+
         local pickup = PickupDA and PickupDA.get and PickupDA:get() or nil
         local full_name = get_full_name(pickup)
 
@@ -671,6 +674,7 @@ end
 function M.send_pickup_check(full_name)
     if not client then return end
     if not full_name then return end
+    if not LocationData.pickup_checks then return end  -- pickups aren't checks
 
     local location_id, kind = LocationData.from_da(full_name)
     if not location_id then return end
