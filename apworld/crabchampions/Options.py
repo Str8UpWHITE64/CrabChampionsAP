@@ -171,6 +171,15 @@ class CascadeRankedChecks(Toggle):
     display_name = "Cascade Ranked Checks"
 
 
+class PickupChecks(DefaultOnToggle):
+    """When enabled, picking up perks, relics, weapon mods, melee mods, and ability mods
+    for the first time generates location checks (e.g., 'Perk: Driller', 'Relic: Time Ring').
+    This adds up to 305 additional locations. When disabled, these pickup locations are
+    not created and the item pool is smaller, focusing only on island completions,
+    equipment runs, and rank runs."""
+    display_name = "Pickup Checks"
+
+
 # Filler / misc
 
 class CrystalCachePercentage(Range):
@@ -265,6 +274,7 @@ class CrabChampsOption(PerGameCommonOptions):
     extra_ranked_island_checks: ExtraRankedIslandChecks
     non_progression_above_required: NonProgressionAboveRequired
     cascade_ranked_checks: CascadeRankedChecks
+    pickup_checks: PickupChecks
     # Progressive slots
     progressive_slots: ProgressiveSlots
     starting_perk_slots: StartingPerkSlots

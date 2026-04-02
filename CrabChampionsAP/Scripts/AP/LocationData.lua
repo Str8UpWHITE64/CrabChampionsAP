@@ -58,6 +58,7 @@ M.required_rank = 0
 M.run_length = 28
 M.equipment_check_mode = 0  -- 0=regular, 1=filler_only, 2=disabled
 M.greed_item_mode = 0       -- 0=auto, 1=drop, 2=skip
+M.pickup_checks = true
 M.death_link = false
 M.progressive_slots = false
 M.starting_perk_slots = 24
@@ -85,6 +86,7 @@ function M.configure(slot_data)
     M.run_length = tonumber(opts.run_length) or 28
     M.equipment_check_mode = tonumber(opts.equipment_check_mode) or 0
     M.greed_item_mode = tonumber(opts.greed_item_mode) or 0
+    M.pickup_checks = (opts.pickup_checks == nil) and true or opts.pickup_checks
     M.death_link = opts.death_link or (slot_data and slot_data.death_link) or false
     M.progressive_slots = opts.progressive_slots or false
     log("progressive_slots raw=" .. tostring(opts.progressive_slots) .. " resolved=" .. tostring(M.progressive_slots))

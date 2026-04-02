@@ -1,6 +1,5 @@
 /.venv/
 /.idea/
-/.claude/
 /dumps/
 pickup_tags.txt
 *.zip
