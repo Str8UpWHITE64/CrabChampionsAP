@@ -8,7 +8,7 @@ from worlds.generic.Rules import set_rule
 from .Items import (
     CrabChampsItem, CrabChampsItemCategory, item_dictionary, key_item_names,
     item_descriptions, BuildItemPool, weapon_item_names, melee_item_names,
-    ability_item_names, GREED_ITEM_NAMES,
+    ability_item_names, GREED_ITEM_NAMES, PICKUP_TAG_REQUIREMENTS, TAG_PROVIDER_NAMES,
 )
 from .Locations import (
     CrabChampsLocation, CrabChampsLocationCategory, location_tables,
@@ -93,6 +93,18 @@ class CrabChampsWorld(World):
             self.options.melee_in_pool.value = max_melee_pool
         if self.options.abilities_in_pool.value > max_ability_pool:
             self.options.abilities_in_pool.value = max_ability_pool
+
+        # When equipment_check_mode is disabled, non-pool equipment has no locations,
+        # so completion is limited to pool size. Otherwise the player can use all
+        # equipment (pool + non-pool) toward completion.
+        equip_mode = self.options.equipment_check_mode.value
+        if equip_mode == 2:  # disabled
+            if self.options.weapons_for_completion.value > self.options.weapons_in_pool.value:
+                self.options.weapons_for_completion.value = self.options.weapons_in_pool.value
+            if self.options.melee_for_completion.value > self.options.melee_in_pool.value:
+                self.options.melee_for_completion.value = self.options.melee_in_pool.value
+            if self.options.ability_for_completion.value > self.options.abilities_in_pool.value:
+                self.options.ability_for_completion.value = self.options.abilities_in_pool.value
 
         # Randomly select which equipment is in the AP pool
         self.pool_weapons = sorted(
@@ -402,9 +414,25 @@ class CrabChampsWorld(World):
             if location.category != CrabChampsLocationCategory.EVENT
         )
 
+        # Progressive slot items: added before BuildItemPool so pool size is adjusted
+        slot_item_count = 0
+        if self.options.progressive_slots.value:
+            slot_defs = [
+                ("Progressive Perk Slot", 24, self.options.starting_perk_slots.value),
+                ("Progressive Weapon Mod Slot", 24, self.options.starting_weapon_mod_slots.value),
+                ("Progressive Ability Mod Slot", 12, self.options.starting_ability_mod_slots.value),
+                ("Progressive Melee Mod Slot", 12, self.options.starting_melee_mod_slots.value),
+            ]
+            for slot_name, max_slots, starting in slot_defs:
+                count = max_slots - starting
+                for _ in range(count):
+                    itempool.append(self.create_item(slot_name))
+                    slot_item_count += 1
+
         # Exclude greed items from pool when greed_item_mode == skip (2)
         exclude = GREED_ITEM_NAMES if self.options.greed_item_mode.value == 2 else None
-        pool = BuildItemPool(self.multiworld, location_count, self.options,
+        remaining = location_count - slot_item_count
+        pool = BuildItemPool(self.multiworld, remaining, self.options,
                              self.pool_weapons, self.pool_melee, self.pool_abilities,
                              exclude_names=exclude)
         for item_data in pool:
@@ -450,7 +478,14 @@ class CrabChampsWorld(World):
             CrabChampsItemCategory.MELEE_MOD,
             CrabChampsItemCategory.ABILITY_MOD,
         ):
-            classification = ItemClassification.useful
+            # Items that provide pickup tags gate other locations, so they
+            # must be progression for state.has() to count them.
+            if name in TAG_PROVIDER_NAMES:
+                classification = ItemClassification.progression
+            else:
+                classification = ItemClassification.useful
+        elif item_cat == CrabChampsItemCategory.SLOT:
+            classification = ItemClassification.progression
         elif item_cat == CrabChampsItemCategory.FILLER:
             classification = ItemClassification.filler
         else:
@@ -701,22 +736,53 @@ class CrabChampsWorld(World):
                 except KeyError:
                     pass
 
+        # --- Pickup tag prerequisites ---
+        # Some perks/mods/relics only appear in-game when the player already has
+        # an item with a matching PickupTag. Set access rules accordingly.
+        pickup_cats = (
+            CrabChampsLocationCategory.PERK,
+            CrabChampsLocationCategory.RELIC,
+            CrabChampsLocationCategory.WEAPON_MOD,
+            CrabChampsLocationCategory.MELEE_MOD,
+            CrabChampsLocationCategory.ABILITY_MOD,
+        )
+        for location in self.multiworld.get_locations(self.player):
+            if not hasattr(location, 'category') or location.category not in pickup_cats:
+                continue
+            item_name = location.name.split(": ", 1)[-1] if ": " in location.name else ""
+            providers = PICKUP_TAG_REQUIREMENTS.get(item_name)
+            if providers:
+                set_rule(
+                    location,
+                    lambda state, p=providers: any(
+                        state.has(item, self.player) for item in p
+                    )
+                )
+
         # --- Victory rule ---
-        # Goal: complete final island with required pool equipment at required rank.
-        # Always check pool equipment (pool locations always exist).
-        # Capture pool lists for victory closure
-        victory_pool_weapons = list(self.pool_weapons)
-        victory_pool_melee = list(self.pool_melee)
-        victory_pool_abilities = list(self.pool_abilities)
+        # Goal: complete final island with enough different equipment at required rank.
+        # Pool equipment requires AP items; non-pool equipment is available from the start.
+        # When equip_mode == disabled, non-pool locations don't exist so only pool counts.
+
+        # Build list of ALL equipment that has locations toward victory
+        victory_weapons = list(self.pool_weapons)
+        victory_melee = list(self.pool_melee)
+        victory_abilities = list(self.pool_abilities)
+        if equip_mode != 2:  # regular or filler_only: non-pool has locations too
+            victory_weapons += self.non_pool_weapons
+            if melee_needed > 0:
+                victory_melee += self.non_pool_melee
+            if abilities_needed > 0:
+                victory_abilities += self.non_pool_abilities
 
         # Pre-build victory location names using _il helper
         equip_rank = required_rank_name  # e.g. "Bronze"
         victory_weapon_locs = {w: _il(run_length, equip=w, rank=equip_rank)
-                               for w in victory_pool_weapons}
+                               for w in victory_weapons}
         victory_melee_locs = {m: _il(run_length, equip=m, rank=equip_rank)
-                              for m in victory_pool_melee}
+                              for m in victory_melee}
         victory_ability_locs = {a: _il(run_length, equip=a, rank=equip_rank)
-                                for a in victory_pool_abilities}
+                                for a in victory_abilities}
 
         def victory_rule(state, rank_name=required_rank_name, wn=weapons_needed,
                          mn=melee_needed, an=abilities_needed,
@@ -725,7 +791,7 @@ class CrabChampsWorld(World):
             # Must complete the required rank
             if not state.can_reach_location(f"Complete Run on {rank_name}", self.player):
                 return False
-            # Must reach final island with enough different pool weapons at required rank
+            # Must reach final island with enough different weapons at required rank
             weapon_count = sum(
                 1 for w, loc in wl.items()
                 if state.can_reach_location(loc, self.player)
@@ -802,6 +868,11 @@ class CrabChampsWorld(World):
                 "equipment_check_mode": self.options.equipment_check_mode.value,
                 "guaranteed_items": self.options.guaranteed_items.value,
                 "greed_item_mode": self.options.greed_item_mode.value,
+                "progressive_slots": bool(self.options.progressive_slots.value),
+                "starting_perk_slots": self.options.starting_perk_slots.value,
+                "starting_weapon_mod_slots": self.options.starting_weapon_mod_slots.value,
+                "starting_ability_mod_slots": self.options.starting_ability_mod_slots.value,
+                "starting_melee_mod_slots": self.options.starting_melee_mod_slots.value,
                 "death_link": bool(self.options.death_link.value),
             },
             "death_link": bool(self.options.death_link.value),

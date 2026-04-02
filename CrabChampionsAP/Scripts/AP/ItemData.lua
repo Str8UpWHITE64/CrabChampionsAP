@@ -23,6 +23,7 @@ M.CATEGORY = {
     MELEE_MOD  = 8,
     ABILITY_MOD = 9,
     FILLER     = 10,
+    SLOT       = 11,
 }
 
 -- UE4 class name for each category
@@ -161,6 +162,12 @@ add(900, M.CATEGORY.FILLER, "Crystal Cache")       -- 50 crystals
 add(901, M.CATEGORY.FILLER, "Nothing")
 add(902, M.CATEGORY.FILLER, "Crystal Hoard")        -- 100 crystals
 add(903, M.CATEGORY.FILLER, "Crystal Jackpot")      -- 500 crystals
+
+-- Slot items (cc_code 950-953)
+add(950, M.CATEGORY.SLOT, "Progressive Perk Slot")
+add(951, M.CATEGORY.SLOT, "Progressive Weapon Mod Slot")
+add(952, M.CATEGORY.SLOT, "Progressive Ability Mod Slot")
+add(953, M.CATEGORY.SLOT, "Progressive Melee Mod Slot")
 
 -- Event (cc_code 1000)
 add(1000, M.CATEGORY.EVENT, "Victory")

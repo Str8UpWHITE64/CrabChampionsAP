@@ -295,6 +295,17 @@ local function has_cpp_mod()
     return AP_AddInventoryItem ~= nil
 end
 
+--- Sanitize inventory arrays: remove entries with null DA or Level=0.
+--- Called after batch operations to clean up race condition artifacts.
+local function sanitize_inventory()
+    if not AP_SanitizeInventory then return 0 end
+    local ok, removed = pcall(AP_SanitizeInventory)
+    if ok and removed and removed > 0 then
+        log("Inventory sanitized: removed " .. removed .. " broken entries")
+    end
+    return (ok and removed) or 0
+end
+
 --- Add an item via the C++ inventory mod. Returns true on success.
 --- Does NOT refresh UI — caller should call AP_RefreshInventoryUI after batch.
 --- Also sends the location check for the item (since we bypass ClientOnPickedUpPickup).
@@ -434,7 +445,8 @@ local function flush_cpp_queue()
                 return true  -- run once
             end)
         else
-            -- All done
+            -- All done — sanitize to clean up any race condition artifacts
+            sanitize_inventory()
             local total_overflow = M.overflow_count()
             if overflowed > 0 then
                 log("Batch complete: " .. applied .. " applied, " .. overflowed .. " waiting for free slots (" .. total_overflow .. " total overflow)")
@@ -536,6 +548,7 @@ function M.retry_overflow()
             end)
         else
             overflow_retry_running = false
+            sanitize_inventory()
             if total_applied > 0 then
                 log("Overflow retry complete: " .. total_applied .. " applied, " .. M.overflow_count() .. " still waiting")
             end
@@ -636,6 +649,25 @@ function M.apply_item(ap_item_id)
         return
     end
 
+    -- Slot items (progressive inventory slots)
+    if info.cat == CAT.SLOT then
+        local slot_map = {
+            ["Progressive Perk Slot"] = "Perks",
+            ["Progressive Weapon Mod Slot"] = "WeaponMods",
+            ["Progressive Ability Mod Slot"] = "AbilityMods",
+            ["Progressive Melee Mod Slot"] = "MeleeMods",
+        }
+        local slot_type = slot_map[info.name]
+        if slot_type then
+            local ok, SlotLock = pcall(require, "AP/SlotLock")
+            if ok and SlotLock then
+                SlotLock.add_slots(slot_type, 1)
+                log("Received " .. info.name .. " — " .. slot_type .. " now " .. SlotLock.get_slots(slot_type))
+            end
+        end
+        return
+    end
+
     if not info.full_name or not info.da then
         log("No DA resolved for: " .. info.name .. " — cannot apply")
         return
@@ -646,17 +678,17 @@ function M.apply_item(ap_item_id)
 
     -- Weapons/Abilities/Melee: add to allowed pool only (don't force-equip mid-run)
     if info.cat == CAT.WEAPON then
-        if equip_lock then equip_lock.allowed.weapon[info.full_name] = true end
+        if equip_lock then equip_lock.allow_item("weapon", info.full_name) end
         M.unlocked[info.full_name] = true
         log("Unlocked weapon: " .. info.name)
         return
     elseif info.cat == CAT.ABILITY then
-        if equip_lock then equip_lock.allowed.ability[info.full_name] = true end
+        if equip_lock then equip_lock.allow_item("ability", info.full_name) end
         M.unlocked[info.full_name] = true
         log("Unlocked ability: " .. info.name)
         return
     elseif info.cat == CAT.MELEE then
-        if equip_lock then equip_lock.allowed.melee[info.full_name] = true end
+        if equip_lock then equip_lock.allow_item("melee", info.full_name) end
         M.unlocked[info.full_name] = true
         log("Unlocked melee: " .. info.name)
         return
@@ -842,6 +874,12 @@ end
 --- Get the number of items waiting in the spawn queue.
 function M.pending_count()
     return #spawn_queue
+end
+
+--- Sanitize all inventory arrays, removing broken entries (null DA or Level=0).
+--- Returns the number of entries removed.
+function M.sanitize_inventory()
+    return sanitize_inventory()
 end
 
 return M
