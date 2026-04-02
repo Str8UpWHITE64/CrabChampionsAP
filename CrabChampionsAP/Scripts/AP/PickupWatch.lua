@@ -315,6 +315,18 @@ function M.install(ap_client)
             return
         end
 
+        -- Check if this mod is suppressed (bundled with a disallowed weapon being reverted)
+        local equip_lock = _G.AP and _G.AP.equip_lock or nil
+        if equip_lock and equip_lock.suppressed_mods then
+            local display_name = LocationData.display_name(nil, full_name) or ""
+            for mod_name, _ in pairs(equip_lock.suppressed_mods) do
+                if display_name == mod_name or full_name:find(mod_name:gsub("%s+", "")) then
+                    log("Suppressed pickup check for bundled mod: " .. display_name)
+                    return
+                end
+            end
+        end
+
         local location_id, kind = LocationData.from_da(full_name)
 
         if not location_id then
