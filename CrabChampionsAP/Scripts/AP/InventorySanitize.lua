@@ -660,14 +660,7 @@ local function sanitize_kind(ps, kind, list_prop, da_field, allowed_set, fallbac
 end
 
 function M.sanitize_all_players()
-  if not M.active and
-     not has_any(M.allowed_weapon_mod_full) and
-     not has_any(M.allowed_perk_full) and
-     not has_any(M.allowed_ability_mod_full) and
-     not has_any(M.allowed_relic_full) and
-     not has_any(M.allowed_melee_mod_full) then
-    return  -- nothing to do
-  end
+  if not M.active then return end
 
   if not weaponMod_by_full or not perk_by_full or not abilityMod_by_full then
     refresh_maps()
