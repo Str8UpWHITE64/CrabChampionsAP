@@ -8,6 +8,22 @@ local M = {}
 
 local function log(msg) print("[CrabAP-EquipLock] " .. tostring(msg)) end
 
+-- Weapons that grant bundled perks/mods when equipped.
+-- When a disallowed weapon is reverted, these must be stripped.
+-- Format: weapon name -> { {mod_name, count}, ... }
+local WEAPON_BUNDLED_MODS = {
+    ["Arcane Wand"]       = { {"Arcane Shot", 2} },
+    ["Flamethrower"]      = { {"Fire Shot", 1} },
+    ["Ice Staff"]         = { {"Ice Shot", 1} },
+    ["Lightning Scepter"] = { {"Lightning Shot", 1} },
+    ["Minigun"]           = { {"Escalating Shot", 1} },
+    ["Poison Cannon"]     = { {"Poison Shot", 1} },
+}
+
+-- Mod names temporarily suppressed from sending pickup checks.
+-- Set before enforcement, cleared after bundled mods are stripped.
+M.suppressed_mods = {}  -- mod_name -> true
+
 -- Allowed sets (full_name strings -> true)
 M.allowed = { weapon = {}, ability = {}, melee = {} }
 
@@ -201,6 +217,67 @@ function M.on_lobby_entered()
     end
 end
 
+--- Strip bundled weapon mods that were added when a disallowed weapon was equipped.
+--- Finds the DA full_name and uses ServerRemoveWeaponMod (same as PickupWatch).
+local function strip_bundled_mods(weapon_name)
+    if not weapon_name then return end
+    local bundled = WEAPON_BUNDLED_MODS[weapon_name]
+    if not bundled then return end
+
+    -- Build mod DA lookup if needed
+    local mod_full_names = {}
+    pcall(function()
+        local all = FindAllOf("CrabWeaponModDA")
+        if all then
+            for _, da in ipairs(all) do
+                if da and da:IsValid() then
+                    local fn = get_full_name(da)
+                    if fn then
+                        local leaf = fn:match("DA_WeaponMod_(%w+)")
+                        if leaf then mod_full_names[leaf] = fn end
+                    end
+                end
+            end
+        end
+    end)
+
+    local ps = nil
+    pcall(function()
+        local pss = FindAllOf("CrabPS")
+        if pss and #pss > 0 then ps = pss[1] end
+    end)
+    if not ps then return end
+
+    for _, entry in ipairs(bundled) do
+        local mod_name = entry[1]
+        local mod_count = entry[2]
+        local da_key = mod_name:gsub("%s+", "")
+        local full_name = mod_full_names[da_key]
+
+        if full_name then
+            for i = 1, mod_count do
+                pcall(function()
+                    ps:ServerRemoveWeaponMod(full_name)
+                end)
+            end
+            log("Stripped bundled mod: " .. mod_name .. " x" .. mod_count .. " (from " .. weapon_name .. ")")
+        else
+            log("Could not find DA for bundled mod: " .. mod_name)
+        end
+    end
+end
+
+--- Get the clean weapon name from a full DA name.
+--- e.g., "CrabWeaponDA /Game/.../DA_Weapon_ArcaneWand.DA_Weapon_ArcaneWand" -> "Arcane Wand"
+local function weapon_name_from_full(full_name)
+    if not full_name then return nil end
+    -- Extract leaf: DA_Weapon_ArcaneWand -> ArcaneWand
+    local leaf = full_name:match("DA_Weapon_(%w+)")
+    if not leaf then return nil end
+    -- Convert CamelCase to spaced: ArcaneWand -> Arcane Wand
+    return leaf:gsub("(%l)(%u)", "%1 %2")
+end
+
 --- Enforce equipment restrictions now.
 --- Uses C++ ProcessEvent when available, falls back to Lua RPC.
 local function do_enforce(reason)
@@ -210,6 +287,19 @@ local function do_enforce(reason)
     if not has_any(M.allowed.weapon) and not has_any(M.allowed.ability) and not has_any(M.allowed.melee) then
         return
     end
+
+    -- Capture current weapon before enforcement to check for bundled mods
+    local current_weapon_name = nil
+    pcall(function()
+        local pss = FindAllOf("CrabPS")
+        if pss and #pss > 0 then
+            local w = pss[1].WeaponDA
+            local w_fn = get_full_name(w)
+            if w_fn and has_any(M.allowed.weapon) and not M.allowed.weapon[w_fn] then
+                current_weapon_name = weapon_name_from_full(w_fn)
+            end
+        end
+    end)
 
     -- C++ path: fast, reliable
     if has_cpp() then
@@ -283,6 +373,24 @@ function M.install()
         local req = NewWeaponDA and NewWeaponDA.get and NewWeaponDA:get() or nil
         local req_fn = get_full_name(req)
         if req_fn and has_any(M.allowed.weapon) and not M.allowed.weapon[req_fn] then
+            -- Immediately suppress bundled mod pickup checks before they fire
+            local wname = weapon_name_from_full(req_fn)
+            if wname then
+                local bundled = WEAPON_BUNDLED_MODS[wname]
+                if bundled then
+                    for _, entry in ipairs(bundled) do
+                        M.suppressed_mods[entry[1]] = true
+                    end
+                    log("Suppressed mods for disallowed weapon: " .. wname)
+                end
+                -- Strip the bundled mods directly on the hook thread (RPCs work here)
+                strip_bundled_mods(wname)
+                -- Clear suppression after a delay to ensure pickup hooks have fired
+                LoopAsync(1000, function()
+                    M.suppressed_mods = {}
+                    return true
+                end)
+            end
             mark_enforce("ServerSetWeaponDA")
         end
     end)
