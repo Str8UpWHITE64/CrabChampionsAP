@@ -78,7 +78,7 @@ local overlay = {
 
 -- Recent item log lines (for connection panel)
 local item_log_lines = {}
-local MAX_LOG_LINES = 5
+local MAX_LOG_LINES = 8
 
 -- Item feed entries (timed, auto-remove)
 local feed_entries = {}
@@ -718,6 +718,64 @@ local function flags_to_accent_color(flags)
     else
         return { 0.3, 0.8, 0.8, 0.9 }
     end
+end
+
+--- Classify a Crab Champions item name by common patterns if flags are missing.
+--- Returns AP flags: 1=progression, 2=useful, 4=trap, 0=filler
+local function classify_item_name(name)
+    if not name then return 0 end
+    local lower = name:lower()
+    -- Weapons, melee, abilities are progression
+    if lower:find("rifle") or lower:find("pistol") or lower:find("launcher")
+       or lower:find("shotgun") or lower:find("sniper") or lower:find("minigun")
+       or lower:find("flamethrower") or lower:find("crossbow") or lower:find("seagle")
+       or lower:find("wand") or lower:find("staff") or lower:find("scepter")
+       or lower:find("cannons") or lower:find("cannon")
+       or lower:find("claw") or lower:find("dagger") or lower:find("hammer")
+       or lower:find("katana") or lower:find("pickaxe")
+       or lower:find("air strike") or lower:find("black hole") or lower:find("electro globe")
+       or lower:find("grappling hook") or lower:find("grenade") or lower:find("ice blast")
+       or lower:find("laser beam") then
+        return ITEM_FLAG_PROGRESSION
+    end
+    -- Relics and mods are useful
+    if lower:find("ring") or lower:find("amulet") or lower:find("icebreaker")
+       or lower:find("jacket") or lower:find("armor") or lower:find("goblet")
+       or lower:find("backpack") or lower:find("roller") or lower:find("shot")
+       or lower:find("claws") or lower:find("explosion") or lower:find("turret")
+       or lower:find("blade") or lower:find("vortex") or lower:find("mushroom") then
+        return ITEM_FLAG_USEFUL
+    end
+    -- Crystal filler
+    if lower:find("crystal") or lower:find("nothing") then return 0 end
+    -- Default: useful (most perks)
+    return ITEM_FLAG_USEFUL
+end
+
+--- Add a formatted item send/receive message to the feed.
+--- @param info table with: sender, receiver, item, location, flags, is_self_send, is_self_recv
+function APOverlay.add_feed_item(info)
+    if not info then return end
+
+    -- Use provided flags, or try to classify by name
+    local flags = info.flags or 0
+    if flags == 0 and info.item then
+        flags = classify_item_name(info.item)
+    end
+
+    local text
+
+    if info.is_self_send and info.is_self_recv then
+        text = "You found your " .. (info.item or "?") .. " (" .. (info.location or "?") .. ")"
+    elseif info.is_self_send then
+        text = "You sent " .. (info.receiver or "?") .. "'s " .. (info.item or "?") .. " (" .. (info.location or "?") .. ")"
+    elseif info.is_self_recv then
+        text = (info.sender or "?") .. " sent you " .. (info.item or "?") .. " (" .. (info.location or "?") .. ")"
+    else
+        text = (info.sender or "?") .. " sent " .. (info.receiver or "?") .. "'s " .. (info.item or "?")
+    end
+
+    APOverlay.add_feed_line(text, flags)
 end
 
 --- Add a raw text line to the feed with classification flags for coloring.

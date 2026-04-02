@@ -108,11 +108,11 @@ local REMOVE_RPC = {
 }
 
 local ENUM_PATH = {
-    perk        = "Enum /Script/CrabChampions.EPerkType",
-    weapon_mod  = "Enum /Script/CrabChampions.EWeaponModType",
-    ability_mod = "Enum /Script/CrabChampions.EAbilityModType",
-    relic       = "Enum /Script/CrabChampions.ERelicType",
-    melee_mod   = "Enum /Script/CrabChampions.EMeleeModType",
+    perk        = "/Script/CrabChampions.ECrabPerkType",
+    weapon_mod  = "/Script/CrabChampions.ECrabWeaponModType",
+    ability_mod = "/Script/CrabChampions.ECrabAbilityModType",
+    relic       = "/Script/CrabChampions.ECrabRelicType",
+    melee_mod   = "/Script/CrabChampions.ECrabMeleeModType",
 }
 
 local function guess_enum_token(full_name)
@@ -123,25 +123,10 @@ local function guess_enum_token(full_name)
     return leaf
 end
 
+-- Enum resolution disabled — StaticFindObject returns nullptr userdata
+-- that UE4SS logs as errors even inside pcall. The raw token fallback
+-- in remove_item works correctly, so we just return nil here.
 local function try_resolve_enum(kind, token)
-    if not token or type(token) ~= "string" then return nil end
-    local path = ENUM_PATH[kind]
-    if not path then return nil end
-
-    local ok, enum = pcall(function() return FindObject(path) end)
-    if not ok or not enum then return nil end
-
-    local val_ok, val = pcall(function()
-        if enum.GetValueByNameString then
-            return enum:GetValueByNameString(token)
-        end
-        if enum.GetValueByName then
-            return enum:GetValueByName(token)
-        end
-        return nil
-    end)
-
-    if val_ok then return val end
     return nil
 end
 
@@ -224,6 +209,7 @@ function M.check_victory()
 
     local req_rank = LocationData.required_rank
     local final = LocationData.run_length
+    local equip_mode = LocationData.equipment_check_mode
 
     -- Check rank run at required rank is completed
     local rank_loc = LocationData.rank_run_location_id(req_rank)
@@ -231,7 +217,8 @@ function M.check_victory()
         return false
     end
 
-    -- Count completed pool weapon runs at final island on required rank
+    -- Count completed weapon runs at final island on required rank
+    -- Pool weapons always count; non-pool count when equip_mode != disabled
     local weapon_count = 0
     for wname, _ in pairs(LocationData.pool_weapons) do
         local loc_id = LocationData.weapon_run_location_id_by_name(final, wname, req_rank)
@@ -239,8 +226,18 @@ function M.check_victory()
             weapon_count = weapon_count + 1
         end
     end
+    if equip_mode ~= 2 then
+        for _, wname in ipairs(LocationData.weapon_names) do
+            if not LocationData.is_pool_weapon(wname) then
+                local loc_id = LocationData.weapon_run_location_id_by_name(final, wname, req_rank)
+                if loc_id and client:is_location_checked(loc_id) then
+                    weapon_count = weapon_count + 1
+                end
+            end
+        end
+    end
 
-    -- Count completed pool melee runs at final island on required rank
+    -- Count completed melee runs at final island on required rank
     local melee_count = 0
     if LocationData.melee_for_completion > 0 then
         for mname, _ in pairs(LocationData.pool_melee) do
@@ -249,15 +246,35 @@ function M.check_victory()
                 melee_count = melee_count + 1
             end
         end
+        if equip_mode ~= 2 then
+            for _, mname in ipairs(LocationData.melee_names) do
+                if not LocationData.is_pool_melee(mname) then
+                    local loc_id = LocationData.melee_run_location_id_by_name(final, mname, req_rank)
+                    if loc_id and client:is_location_checked(loc_id) then
+                        melee_count = melee_count + 1
+                    end
+                end
+            end
+        end
     end
 
-    -- Count completed pool ability runs at final island on required rank
+    -- Count completed ability runs at final island on required rank
     local ability_count = 0
     if LocationData.ability_for_completion > 0 then
         for aname, _ in pairs(LocationData.pool_abilities) do
             local loc_id = LocationData.ability_run_location_id_by_name(final, aname, req_rank)
             if loc_id and client:is_location_checked(loc_id) then
                 ability_count = ability_count + 1
+            end
+        end
+        if equip_mode ~= 2 then
+            for _, aname in ipairs(LocationData.ability_names) do
+                if not LocationData.is_pool_ability(aname) then
+                    local loc_id = LocationData.ability_run_location_id_by_name(final, aname, req_rank)
+                    if loc_id and client:is_location_checked(loc_id) then
+                        ability_count = ability_count + 1
+                    end
+                end
             end
         end
     end

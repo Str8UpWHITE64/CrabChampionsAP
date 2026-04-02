@@ -1,3 +1,5 @@
 /.venv/
 /.idea/
 /dumps/
+pickup_tags.txt
+*.zip

@@ -73,11 +73,8 @@ local function on_item(it)
     -- Apply immediately — we're on the LoopAsync thread, no need to defer
     ItemApply.apply_item(item_id)
 
-    -- Update overlay feed
+    -- Update equipment checklist if this was a weapon/melee/ability
     if APOverlay then
-        local flags = tonumber(it.flags) or 0
-        APOverlay.add_feed_line("Received: " .. name, flags)
-        -- Update equipment checklist if this was a weapon/melee/ability
         if info and (info.cat == ItemData.CATEGORY.WEAPON
                   or info.cat == ItemData.CATEGORY.MELEE
                   or info.cat == ItemData.CATEGORY.ABILITY) then
@@ -157,27 +154,21 @@ local function on_slot_connected(slot_data)
         for _, wname in ipairs(LocationData.weapon_names) do
             if not LocationData.is_pool_weapon(wname) then
                 local fn, da = ItemData.get_da(CAT.WEAPON, wname)
-                if fn then
-                    equip_lock.allowed.weapon[fn] = true
-                end
+                if fn then equip_lock.allow_item("weapon", fn) end
             end
         end
         -- Non-pool melee
         for _, mname in ipairs(LocationData.melee_names) do
             if not LocationData.is_pool_melee(mname) then
                 local fn, da = ItemData.get_da(CAT.MELEE, mname)
-                if fn then
-                    equip_lock.allowed.melee[fn] = true
-                end
+                if fn then equip_lock.allow_item("melee", fn) end
             end
         end
         -- Non-pool abilities
         for _, aname in ipairs(LocationData.ability_names) do
             if not LocationData.is_pool_ability(aname) then
                 local fn, da = ItemData.get_da(CAT.ABILITY, aname)
-                if fn then
-                    equip_lock.allowed.ability[fn] = true
-                end
+                if fn then equip_lock.allow_item("ability", fn) end
             end
         end
         local np_w = #LocationData.weapon_names - #pw
@@ -208,6 +199,23 @@ local function on_slot_connected(slot_data)
         end
         return true  -- run once
     end)
+
+    -- Progressive inventory slots: lock slots to starting counts
+    local sl = _G.AP and _G.AP.SlotLock or nil
+    if sl then
+        if LocationData.progressive_slots then
+            sl.set_slots("Perks", LocationData.starting_perk_slots)
+            sl.set_slots("WeaponMods", LocationData.starting_weapon_mod_slots)
+            sl.set_slots("AbilityMods", LocationData.starting_ability_mod_slots)
+            sl.set_slots("MeleeMods", LocationData.starting_melee_mod_slots)
+            clog("STATUS", "Progressive slots: Perks=" .. LocationData.starting_perk_slots
+                .. " WMods=" .. LocationData.starting_weapon_mod_slots
+                .. " AMods=" .. LocationData.starting_ability_mod_slots
+                .. " MMods=" .. LocationData.starting_melee_mod_slots)
+        else
+            sl.disable()
+        end
+    end
 
     -- Activate inventory sanitization so perks/mods/relics picked up in-game
     -- are stripped unless received from the AP server.
@@ -330,6 +338,9 @@ APClient.on_item = on_item
 APClient.on_message = on_message
 APClient.on_slot_connected = on_slot_connected
 APClient.on_deathlink = on_deathlink
+APClient.on_item_send = function(info)
+    if APOverlay then APOverlay.add_feed_item(info) end
+end
 APClient.on_disconnected = function()
     if APOverlay then APOverlay.set_disconnected() end
 end
@@ -499,12 +510,150 @@ ExecuteInGameThread(function()
 end)
 
 log("Archipelago mod loaded" .. (APClient.enabled and " (AP enabled)" or " (AP disabled)"))
--- F1: Test kill (simulates receiving a deathlink)
+
+-- Slot Lock module (progressive inventory slots)
+local SlotLock = require("AP/SlotLock")
+SlotLock.install()
+AP.SlotLock = SlotLock
+log("SlotLock loaded and installed")
+
+-- F1: Test equip lock — only Auto Rifle allowed
 RegisterKeyBind(Key.F1, function()
-    ExecuteInGameThread(function()
-        log("F1 pressed — simulating DeathLink kill")
-        on_deathlink("DEBUG_TEST", "Test kill via F1")
+    LoopAsync(1, function()
+        if not ItemData.is_resolved() then ItemData.resolve_game_objects() end
+        local equip_lock = _G.AP and _G.AP.equip_lock or nil
+        if not equip_lock then log("F1: No equip_lock"); return true end
+
+        -- Reset and allow only Auto Rifle + first ability + first melee
+        equip_lock.allowed = { weapon = {}, ability = {}, melee = {} }
+
+        local fn_w = ItemData.get_da(ItemData.CATEGORY.WEAPON, "Auto Rifle")
+        local fn_a = ItemData.get_da(ItemData.CATEGORY.ABILITY, "Grenade")
+        local fn_m = ItemData.get_da(ItemData.CATEGORY.MELEE, "Hammer")
+
+        if fn_w then equip_lock.allow_item("weapon", fn_w) end
+        if fn_a then equip_lock.allow_item("ability", fn_a) end
+        if fn_m then equip_lock.allow_item("melee", fn_m) end
+
+        equip_lock.request_enforce("F1 test")
+        log("F1: Locked to Auto Rifle / Grenade / Hammer — try switching weapons!")
+        return true
     end)
 end)
 
-log("  F1 = Test kill | F3 = Connect/Disconnect | F4 = Toggle overlay")
+-- F2: Unlock Crossbow as additional weapon
+RegisterKeyBind(Key.F2, function()
+    LoopAsync(1, function()
+        if not ItemData.is_resolved() then ItemData.resolve_game_objects() end
+        local equip_lock = _G.AP and _G.AP.equip_lock or nil
+        if not equip_lock then log("F2: No equip_lock"); return true end
+
+        local fn = ItemData.get_da(ItemData.CATEGORY.WEAPON, "Crossbow")
+        if fn then
+            equip_lock.allow_item("weapon", fn)
+            log("F2: Unlocked Crossbow!")
+        end
+        return true
+    end)
+end)
+
+-- F9: Dump all pickup DA tags and requirements to file
+RegisterKeyBind(Key.F9, function()
+    LoopAsync(1, function()
+        log("=== DUMPING PICKUP TAGS ===")
+        if not ItemData.is_resolved() then ItemData.resolve_game_objects() end
+
+        local TAG_NAMES = {
+            [0] = "None", [1] = "Healing", [2] = "DamageOverTime", [3] = "Critical",
+            [4] = "Speed", [5] = "Bounce", [6] = "Ice", [7] = "Fire",
+            [8] = "Lightning", [9] = "Poison", [10] = "Arcane", [11] = "Turret",
+            [12] = "Combo", [13] = "GlueShot", [14] = "Charger",
+        }
+
+        local lines = {}
+        lines[#lines + 1] = "=== PICKUP TAG DUMP ==="
+        lines[#lines + 1] = ""
+
+        -- Items that PROVIDE a tag (tag providers)
+        local providers = {}  -- tag_id -> list of item names
+        -- Items that REQUIRE a matching tag
+        local requirers = {}  -- tag_id -> list of item names
+
+        local classes = {
+            "CrabPerkDA", "CrabRelicDA", "CrabWeaponModDA",
+            "CrabMeleeModDA", "CrabAbilityModDA",
+        }
+
+        for _, class_name in ipairs(classes) do
+            local all = FindAllOf(class_name)
+            if all then
+                for _, da in ipairs(all) do
+                    pcall(function()
+                        if not da or not da:IsValid() then return end
+                        local name = da.Name or "?"
+                        local tag = tonumber(da.PickupTag) or 0
+                        local requires = da.bRequiresMatchingPickupTag
+
+                        if type(name) ~= "string" then
+                            pcall(function() name = name:ToString() end)
+                        end
+                        name = tostring(name)
+
+                        local tag_name = TAG_NAMES[tag] or tostring(tag)
+
+                        if tag > 0 and not requires then
+                            if not providers[tag] then providers[tag] = {} end
+                            table.insert(providers[tag], name .. " (" .. class_name .. ")")
+                        end
+
+                        if requires then
+                            if not requirers[tag] then requirers[tag] = {} end
+                            table.insert(requirers[tag], name .. " (" .. class_name .. ")")
+                        end
+                    end)
+                end
+            end
+        end
+
+        -- Format output grouped by tag
+        for tag_id = 0, 14 do
+            local tag_name = TAG_NAMES[tag_id] or tostring(tag_id)
+            local provs = providers[tag_id]
+            local reqs = requirers[tag_id]
+
+            if provs or reqs then
+                lines[#lines + 1] = "--- Tag: " .. tag_name .. " (" .. tag_id .. ") ---"
+                if provs then
+                    lines[#lines + 1] = "  PROVIDES this tag:"
+                    table.sort(provs)
+                    for _, p in ipairs(provs) do
+                        lines[#lines + 1] = "    " .. p
+                    end
+                end
+                if reqs then
+                    lines[#lines + 1] = "  REQUIRES this tag:"
+                    table.sort(reqs)
+                    for _, r in ipairs(reqs) do
+                        lines[#lines + 1] = "    " .. r
+                    end
+                end
+                lines[#lines + 1] = ""
+            end
+        end
+
+        -- Write to file
+        local path = "Mods/CrabChampionsAP/Scripts/pickup_tags.txt"
+        local f = io.open(path, "w")
+        if f then
+            f:write(table.concat(lines, "\n") .. "\n")
+            f:close()
+            log("  Written to " .. path .. " (" .. #lines .. " lines)")
+        else
+            log("  ERROR: Could not write to " .. path)
+        end
+
+        return true
+    end)
+end)
+
+log("  F1 = Lock to Auto Rifle | F2 = Unlock Crossbow | F3 = Connect | F4 = Overlay | F9 = Dump tags")

@@ -56,6 +56,7 @@ local Client = {
     on_disconnected = nil,   -- function()
     on_slot_refused = nil,   -- function(reason_str)
     on_deathlink = nil,      -- function(source, cause)
+    on_item_send = nil,      -- function(info) — structured item send {sender, receiver, item, location, flags, is_self_send, is_self_recv}
 }
 
 local LOG_PREFIX = "[CrabAP]"
@@ -201,7 +202,10 @@ function Client:_register_handlers()
         log("Slot connected successfully")
 
         if self.on_slot_connected then
-            pcall(self.on_slot_connected, self.slot_data)
+            local ok, err = pcall(self.on_slot_connected, self.slot_data)
+            if not ok then
+                log("ERROR in on_slot_connected: " .. tostring(err))
+            end
         end
     end)
 
@@ -286,6 +290,15 @@ function Client:_on_print_json(data)
 
     local message = nil
 
+    -- Structured info extracted from message parts
+    local item_flags = nil
+    local item_name = nil
+    local location_name = nil
+    local player_ids = {}
+    local player_names = {}
+    local has_item = false
+    local has_location = false
+
     if type(data) == "string" then
         message = data
     elseif type(data) == "table" then
@@ -301,20 +314,30 @@ function Client:_on_print_json(data)
                         local pid = tonumber(text) or 0
                         local alias = self._client:get_player_alias(pid)
                         text_parts[#text_parts + 1] = alias or ("Player" .. pid)
+                        player_ids[#player_ids + 1] = pid
+                        player_names[#player_names + 1] = alias or ("Player" .. pid)
+
                     elseif ptype == "item_id" then
-                        local iid = tonumber(text) or 0
-                        -- Resolve the owning player's game for correct item name lookup
+                        has_item = true
                         local owner = tonumber(part.player) or 0
-                        local game = (owner > 0 and self._client:get_player_game(owner)) or self.game
-                        local name = self._client:get_item_name(iid, game)
-                        text_parts[#text_parts + 1] = name or ("Item#" .. iid)
+                        local game = nil
+                        pcall(function() game = self._client:get_player_game(owner) end)
+                        game = game or self.game
+                        local name = self._client:get_item_name(tonumber(text) or 0, game)
+                        text_parts[#text_parts + 1] = name or ("Item#" .. text)
+                        if not item_name then item_name = name end
+                        if part.flags ~= nil then item_flags = tonumber(part.flags) end
+
                     elseif ptype == "location_id" then
-                        local lid = tonumber(text) or 0
-                        -- Resolve the owning player's game for correct location name lookup
+                        has_location = true
                         local owner = tonumber(part.player) or 0
-                        local game = (owner > 0 and self._client:get_player_game(owner)) or self.game
-                        local name = self._client:get_location_name(lid, game)
-                        text_parts[#text_parts + 1] = name or ("Location#" .. lid)
+                        local game = nil
+                        pcall(function() game = self._client:get_player_game(owner) end)
+                        game = game or self.game
+                        local name = self._client:get_location_name(tonumber(text) or 0, game)
+                        text_parts[#text_parts + 1] = name or ("Location#" .. text)
+                        if not location_name then location_name = name end
+
                     else
                         text_parts[#text_parts + 1] = text
                     end
@@ -330,6 +353,36 @@ function Client:_on_print_json(data)
         log("MSG: " .. message)
         if self.on_message then
             pcall(self.on_message, message)
+        end
+
+        -- Fire structured item send callback if this was an item exchange message
+        if has_item and has_location and #player_ids >= 1 and self.on_item_send then
+            local my_slot = nil
+            pcall(function() my_slot = self._client:get_player_number() end)
+            my_slot = my_slot or 0
+
+            local sender_id = player_ids[1] or 0
+            local receiver_id = player_ids[2] or sender_id
+            local sender_name = player_names[1] or "Unknown"
+            local receiver_name = player_names[2] or sender_name
+
+            local is_self_send = (sender_id == my_slot)
+            local is_self_recv = (receiver_id == my_slot)
+
+            if #player_ids == 1 then
+                is_self_send = (sender_id == my_slot)
+                is_self_recv = is_self_send
+            end
+
+            pcall(self.on_item_send, {
+                sender = sender_name,
+                receiver = receiver_name,
+                item = item_name or "Unknown Item",
+                location = location_name or "Unknown Location",
+                flags = item_flags or 0,
+                is_self_send = is_self_send,
+                is_self_recv = is_self_recv,
+            })
         end
     end
 end
@@ -440,26 +493,54 @@ function Client:_process_outgoing()
     end
 end
 
+local ITEM_APPLY_BATCH = 25          -- items per apply chunk
+local ITEM_APPLY_DELAY_MS = 150      -- ms pause between chunks
+local _item_apply_running = false    -- prevent overlapping apply loops
+
 function Client:_apply_pending_items()
     if #self._pending_items == 0 then return end
+    if _item_apply_running then return end  -- already processing a batch
+    _item_apply_running = true
 
     table.sort(self._pending_items, function(a, b) return a.index < b.index end)
 
-    for i = 1, #self._pending_items do
-        local it = self._pending_items[i]
-        if it.index > self._applied_index then
-            if self.on_item then
-                local ok, err = pcall(self.on_item, it)
-                if not ok then
-                    log("ERROR applying item index=" .. tostring(it.index) .. ": " .. tostring(err))
-                    break
+    local items = self._pending_items
+    self._pending_items = {}
+    local idx = 1
+    local self_ref = self
+
+    local function process_chunk()
+        local chunk_end = math.min(idx + ITEM_APPLY_BATCH - 1, #items)
+
+        for i = idx, chunk_end do
+            local it = items[i]
+            if it.index > self_ref._applied_index then
+                if self_ref.on_item then
+                    local ok, err = pcall(self_ref.on_item, it)
+                    if not ok then
+                        log("ERROR applying item index=" .. tostring(it.index) .. ": " .. tostring(err))
+                    end
                 end
+                self_ref._applied_index = it.index
             end
-            self._applied_index = it.index
+        end
+
+        idx = chunk_end + 1
+        if idx <= #items then
+            LoopAsync(ITEM_APPLY_DELAY_MS, function()
+                process_chunk()
+                return true  -- run once
+            end)
+        else
+            _item_apply_running = false
+            -- Process any new items that arrived while we were working
+            if #self_ref._pending_items > 0 then
+                self_ref:_apply_pending_items()
+            end
         end
     end
 
-    self._pending_items = {}
+    process_chunk()
 end
 
 -- ---------------------------------------------------------------
