@@ -197,6 +197,50 @@ class GreedItemMode(Choice):
     default = 0
 
 
+class ProgressiveSlots(Toggle):
+    """When enabled, the player starts with fewer inventory slots and receives
+    additional slots as AP items. Slot purchases with crystals are blocked.
+    When disabled, all slots are available from the start as normal."""
+    display_name = "Progressive Inventory Slots"
+
+
+class StartingPerkSlots(Range):
+    """Number of perk slots the player starts with when Progressive Inventory Slots is enabled.
+    The remaining slots (up to 24) are sent as 'Perk Slot' items in the AP pool."""
+    display_name = "Starting Perk Slots"
+    range_start = 1
+    range_end = 24
+    default = 6
+
+
+class StartingWeaponModSlots(Range):
+    """Number of weapon mod slots the player starts with when Progressive Inventory Slots is enabled.
+    The remaining slots (up to 24) are sent as 'Weapon Mod Slot' items in the AP pool."""
+    display_name = "Starting Weapon Mod Slots"
+    range_start = 1
+    range_end = 24
+    default = 6
+
+
+class StartingAbilityModSlots(Range):
+    """Number of ability mod slots the player starts with when Progressive Inventory Slots is enabled.
+    The remaining slots (up to 12) are sent as 'Ability Mod Slot' items in the AP pool."""
+    display_name = "Starting Ability Mod Slots"
+    range_start = 1
+    range_end = 12
+    default = 4
+
+
+class StartingMeleeModSlots(Range):
+    """Number of melee mod slots the player starts with when Progressive Inventory Slots is enabled.
+    The remaining slots (up to 12) are sent as 'Melee Mod Slot' items in the AP pool."""
+    display_name = "Starting Melee Mod Slots"
+    range_start = 1
+    range_end = 12
+    default = 4
+
+
+
 class GuaranteedItemsOption(ItemDict):
     """Guarantees that the specified items will be in the item pool"""
     display_name = "Guaranteed Items"
@@ -221,6 +265,12 @@ class CrabChampsOption(PerGameCommonOptions):
     extra_ranked_island_checks: ExtraRankedIslandChecks
     non_progression_above_required: NonProgressionAboveRequired
     cascade_ranked_checks: CascadeRankedChecks
+    # Progressive slots
+    progressive_slots: ProgressiveSlots
+    starting_perk_slots: StartingPerkSlots
+    starting_weapon_mod_slots: StartingWeaponModSlots
+    starting_ability_mod_slots: StartingAbilityModSlots
+    starting_melee_mod_slots: StartingMeleeModSlots
     # Filler / misc
     crystal_cache_percentage: CrystalCachePercentage
     greed_item_mode: GreedItemMode

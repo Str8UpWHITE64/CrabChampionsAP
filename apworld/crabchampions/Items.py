@@ -16,6 +16,7 @@ class CrabChampsItemCategory(IntEnum):
     MELEE_MOD = 8
     ABILITY_MOD = 9
     FILLER = 10
+    SLOT = 11
 
 
 class CrabChampsItemData(NamedTuple):
@@ -211,6 +212,16 @@ _filler_items = [
     CrabChampsItemData("Crystal Jackpot", 903, CrabChampsItemCategory.FILLER),       # 500 crystals
 ]
 
+# ──────────────────────────────────────────────
+# Slot items  (cc_code 950–953)
+# ──────────────────────────────────────────────
+_slot_items = [
+    CrabChampsItemData("Progressive Perk Slot", 950, CrabChampsItemCategory.SLOT),
+    CrabChampsItemData("Progressive Weapon Mod Slot", 951, CrabChampsItemCategory.SLOT),
+    CrabChampsItemData("Progressive Ability Mod Slot", 952, CrabChampsItemCategory.SLOT),
+    CrabChampsItemData("Progressive Melee Mod Slot", 953, CrabChampsItemCategory.SLOT),
+]
+
 # Crystal filler distribution weights (must sum to 100)
 CRYSTAL_FILLER_WEIGHTS = [
     ("Crystal Cache", 60),      # 50 crystals   — 60%
@@ -232,6 +243,7 @@ _all_items: List[CrabChampsItemData] = (
     + _ability_mod_items
     + _event_items
     + _filler_items
+    + _slot_items
 )
 
 item_descriptions: Dict[str, str] = {}
@@ -266,6 +278,82 @@ GREED_ITEM_NAMES: frozenset = frozenset({
 # These items can appear more than once in the pool.
 _stackable_items: List[CrabChampsItemData] = (
     _perk_items + _weapon_mod_items + _melee_mod_items + _ability_mod_items
+)
+
+
+# ──────────────────────────────────────────────
+# Pickup tag prerequisites
+# ──────────────────────────────────────────────
+# Items that require the player to already have an item with a matching PickupTag.
+# Key = item that REQUIRES the tag (its pickup location gets an access rule)
+# Value = list of items that PROVIDE the tag (player needs any one of these)
+PICKUP_TAG_REQUIREMENTS: Dict[str, List[str]] = {
+    # Healing
+    "Amber Resin": ["Endurance", "Grim Reaper", "Health Shot", "Regenerator",
+                     "Ring Of Healing", "Scavenger", "Vampire"],
+    # DamageOverTime
+    "Time Ring": ["Time Bolt", "Time Claws", "Time Explosion", "Time Shot"],
+    # Critical
+    "Critical Arrow": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Critical Blast": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Critical Lightning": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Critical Thinking": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Mega Crit": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Overspill Goblet": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Power Punch": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Ring Of Precision": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    # Speed
+    "Speed Is Power": ["Ring Of Swiftness", "Speed Demon"],
+    # Bounce
+    "Heavy Shot": ["Bouncing Shot"],
+    # Ice
+    "Ice Cold": ["Freezing Enemies", "Ice Aura", "Ice Claws", "Ice Dash",
+                  "Ice Explosion", "Ice Shot", "Ice Storm", "Ice Strike"],
+    "Ice Ring": ["Freezing Enemies", "Ice Aura", "Ice Claws", "Ice Dash",
+                  "Ice Explosion", "Ice Shot", "Ice Storm", "Ice Strike"],
+    "Icebreaker": ["Freezing Enemies", "Ice Aura", "Ice Claws", "Ice Dash",
+                    "Ice Explosion", "Ice Shot", "Ice Storm", "Ice Strike"],
+    # Fire
+    "Fire Ring": ["Fire Aura", "Fire Claws", "Fire Explosion", "Fire Shot",
+                   "Fire Storm", "Fire Strike", "Fireball Shot", "Flammable Armor",
+                   "Flammable Enemies", "Powerslide"],
+    "Firestarter": ["Fire Aura", "Fire Claws", "Fire Explosion", "Fire Shot",
+                     "Fire Storm", "Fire Strike", "Fireball Shot", "Flammable Armor",
+                     "Flammable Enemies", "Powerslide"],
+    "Hot Steam": ["Fire Aura", "Fire Claws", "Fire Explosion", "Fire Shot",
+                   "Fire Storm", "Fire Strike", "Fireball Shot", "Flammable Armor",
+                   "Flammable Enemies", "Powerslide"],
+    # Lightning
+    "High Voltage": ["Electric Enemies", "Lightning Aura", "Lightning Claws",
+                      "Lightning Dash", "Lightning Explosion", "Lightning Shot",
+                      "Lightning Storm", "Lightning Strike"],
+    "Lightning Ring": ["Electric Enemies", "Lightning Aura", "Lightning Claws",
+                        "Lightning Dash", "Lightning Explosion", "Lightning Shot",
+                        "Lightning Storm", "Lightning Strike"],
+    # Poison
+    "Poison Ring": ["Poison Aura", "Poison Claws", "Poison Explosion", "Poison Shot",
+                     "Poison Storm", "Poison Strike", "Poisonous Armor", "Poisonous Enemies"],
+    "Toxic": ["Poison Aura", "Poison Claws", "Poison Explosion", "Poison Shot",
+               "Poison Storm", "Poison Strike", "Poisonous Armor", "Poisonous Enemies"],
+    # Arcane
+    "Arcane Ring": ["Arcane Claws", "Arcane Shot"],
+    "Potent Magic": ["Arcane Claws", "Arcane Shot"],
+    # Turret
+    "Enhanced Turrets": ["Beam Turret", "Mortar Turret", "Sentry Turret",
+                          "Sniper Turret", "Wave Turret"],
+    "Ring Of Healthy Turrets": ["Beam Turret", "Mortar Turret", "Sentry Turret",
+                                 "Sniper Turret", "Wave Turret"],
+    "Twin Ring": ["Beam Turret", "Mortar Turret", "Sentry Turret",
+                   "Sniper Turret", "Wave Turret"],
+    # Combo
+    "Combo Ring": ["Crystal Combo", "Damage Combo"],
+    # GlueShot
+    "Aura Shot": ["Glue Shot"],
+}
+
+# Set of all item names that provide tags (must be progression for state.has() to work)
+TAG_PROVIDER_NAMES: frozenset = frozenset(
+    name for providers in PICKUP_TAG_REQUIREMENTS.values() for name in providers
 )
 
 
