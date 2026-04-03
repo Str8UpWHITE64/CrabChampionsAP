@@ -769,6 +769,12 @@ end
 --- for a new run. Weapons/abilities/melee are persistent unlocks and don't
 --- need re-application.
 function M.reapply_run_items()
+    -- Clear overflow queues — all overflow items are already tracked in _run_items
+    -- and will be re-added fresh below. Without this, overflow items get double-applied.
+    for queue_name, _ in pairs(cpp_overflow_queues) do
+        cpp_overflow_queues[queue_name] = {}
+    end
+
     -- Re-grant accumulated crystals
     if M._run_crystals > 0 then
         log("Re-granting " .. M._run_crystals .. " crystals for new run")
