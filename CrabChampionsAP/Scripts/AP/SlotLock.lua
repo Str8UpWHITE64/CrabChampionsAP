@@ -183,6 +183,28 @@ function M.is_active()
     return active
 end
 
+--- Re-apply all stored slot counts. Call on lobby return to restore locks
+--- after the game resets slot counts to defaults.
+function M.reapply()
+    if not active then return end
+
+    LoopAsync(1, function()
+        for slot_type, count in pairs(locked_counts) do
+            if HARD_LIMIT_TYPES[slot_type] then
+                if AP_SetHardLimit then
+                    AP_SetHardLimit(slot_type, count)
+                    log("Re-applied " .. slot_type .. " = " .. count .. " (hard limit)")
+                end
+            elseif AP_SetSlotCount then
+                AP_SetSlotCount(slot_type, count)
+                log("Re-applied " .. slot_type .. " = " .. count)
+            end
+        end
+        pcall(AP_RefreshInventoryUI)
+        return true
+    end)
+end
+
 --- Disable slot locking and restore all slots to defaults.
 function M.disable()
     active = false
