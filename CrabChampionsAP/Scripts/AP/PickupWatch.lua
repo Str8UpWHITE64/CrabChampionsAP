@@ -613,6 +613,11 @@ function M.install(ap_client)
                 if el and el.on_lobby_entered then
                     el.on_lobby_entered()
                 end
+                -- Re-apply progressive slot locks (game resets to defaults on lobby)
+                local sl = _G.AP and _G.AP.SlotLock or nil
+                if sl and sl.is_active and sl.is_active() and sl.reapply then
+                    sl.reapply()
+                end
                 -- Re-apply received items
                 local ok, ItemApply = pcall(require, "AP/ItemApply")
                 if ok and ItemApply and ItemApply.reapply_run_items then
