@@ -64,6 +64,53 @@ local cpp_overflow_queues = {
 }
 
 -------------------------------------------------------------
+-- Reset: clear all state for a fresh connection
+-------------------------------------------------------------
+
+--- Reset all item tracking state and clear the player's inventory.
+--- Call on (re)connect before items are reprocessed to prevent duplicates.
+function M.reset()
+    log("Resetting item state for fresh connection...")
+
+    -- Clear tracking tables
+    M.unlocked = {}
+    M._run_items = {}
+    M._run_crystals = 0
+    M.in_lobby = true
+
+    -- Clear all queues
+    cpp_pending_queue = {}
+    cpp_flush_scheduled = false
+    spawn_queue = {}
+    spawn_busy = false
+    crystal_pending = 0
+    crystal_flush_scheduled = false
+    overflow_retry_running = false
+    for queue_name, _ in pairs(cpp_overflow_queues) do
+        cpp_overflow_queues[queue_name] = {}
+    end
+
+    -- Clear inventory arrays via C++ mod
+    if AP_ClearInventoryArray then
+        for _, arr_name in ipairs({"Perks", "WeaponMods", "AbilityMods", "MeleeMods", "Relics"}) do
+            pcall(AP_ClearInventoryArray, arr_name)
+        end
+        pcall(AP_RefreshInventoryUI)
+        log("Cleared all inventory arrays")
+    end
+
+    -- Reset crystals to 0
+    pcall(function()
+        local pss = FindAllOf("CrabPS")
+        if pss and #pss > 0 then
+            pss[1].Crystals = 0
+        end
+    end)
+
+    log("Item state reset complete")
+end
+
+-------------------------------------------------------------
 -- Player / controller lookups
 -------------------------------------------------------------
 

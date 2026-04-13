@@ -91,6 +91,26 @@ end
 local function on_slot_connected(slot_data)
     clog("STATUS", "Slot data received")
 
+    -- Reset item state and clear inventory to prevent duplicates on reconnect.
+    -- All items will be re-sent by the server and re-applied fresh.
+    ItemApply.reset()
+
+    -- Reset equip_lock allowed sets so they're rebuilt from slot_data
+    local el = _G.AP and _G.AP.equip_lock or nil
+    if el then
+        el.allowed = { weapon = {}, ability = {}, melee = {} }
+    end
+
+    -- Reset inv_sanitize allowed sets so they're rebuilt from received items
+    local is = _G.AP and _G.AP.inv_sanitize or nil
+    if is then
+        is.allowed_perk_full = {}
+        is.allowed_relic_full = {}
+        is.allowed_weapon_mod_full = {}
+        is.allowed_ability_mod_full = {}
+        is.allowed_melee_mod_full = {}
+    end
+
     -- Save working connection info so it auto-loads next launch
     pcall(function()
         local APConfig = require("AP/APConfig")
@@ -230,6 +250,10 @@ local function on_slot_connected(slot_data)
             clog("STATUS", "Pickup checks disabled — inventory sanitization off, items kept normally")
         end
     end
+
+    -- Unlock all equipment so new players can use any weapon/ability/melee
+    -- that AP sends them, even if they haven't unlocked it in the base game.
+    unlock_all_equipment()
 end
 
 -- DeathLink state: prevent loops when we kill the player from a received deathlink
@@ -337,6 +361,95 @@ local function on_deathlink(source, cause)
 end
 
 ------------------------------------------------------------
+-- Equipment unlock: set bRequiresUnlock=false on all
+-- equipment DAs so new players can use everything while
+-- connected to AP. Restore original values on disconnect.
+------------------------------------------------------------
+local original_unlock_flags = {}  -- full_name -> original bRequiresUnlock value
+local original_account_rank = nil
+local original_account_level = nil
+
+local function unlock_all_equipment()
+    original_unlock_flags = {}
+    local total = 0
+
+    for _, class_name in ipairs({"CrabWeaponDA", "CrabAbilityDA", "CrabMeleeDA"}) do
+        pcall(function()
+            local all = FindAllOf(class_name)
+            if not all then return end
+            for _, da in ipairs(all) do
+                if da and (not da.IsValid or da:IsValid()) then
+                    pcall(function()
+                        local fn = da:GetFullName()
+                        local orig = da.bRequiresUnlock
+                        if orig then
+                            original_unlock_flags[fn] = true
+                            da.bRequiresUnlock = false
+                            total = total + 1
+                        end
+                    end)
+                end
+            end
+        end)
+    end
+
+    log("Equipment unlock: cleared bRequiresUnlock on " .. total .. " DAs")
+
+    -- Also max out AccountRank and AccountLevel to unlock all difficulty modifiers
+    pcall(function()
+        local pss = FindAllOf("CrabPS")
+        if pss and #pss > 0 then
+            local ps = pss[1]
+            original_account_rank = ps.AccountRank
+            original_account_level = ps.AccountLevel
+            ps.AccountRank = 8   -- Prismatic (highest)
+            ps.AccountLevel = 100
+            log("Account rank set to Prismatic (was " .. tostring(original_account_rank) .. "), level set to 100 (was " .. tostring(original_account_level) .. ")")
+        end
+    end)
+end
+
+local function restore_equipment_locks()
+    if not next(original_unlock_flags) then return end
+    local total = 0
+
+    for _, class_name in ipairs({"CrabWeaponDA", "CrabAbilityDA", "CrabMeleeDA"}) do
+        pcall(function()
+            local all = FindAllOf(class_name)
+            if not all then return end
+            for _, da in ipairs(all) do
+                if da and (not da.IsValid or da:IsValid()) then
+                    pcall(function()
+                        local fn = da:GetFullName()
+                        if original_unlock_flags[fn] then
+                            da.bRequiresUnlock = true
+                            total = total + 1
+                        end
+                    end)
+                end
+            end
+        end)
+    end
+
+    original_unlock_flags = {}
+    log("Equipment unlock: restored bRequiresUnlock on " .. total .. " DAs")
+
+    -- Restore AccountRank and AccountLevel
+    if original_account_rank ~= nil then
+        pcall(function()
+            local pss = FindAllOf("CrabPS")
+            if pss and #pss > 0 then
+                pss[1].AccountRank = original_account_rank
+                pss[1].AccountLevel = original_account_level
+                log("Account rank restored to " .. tostring(original_account_rank) .. ", level to " .. tostring(original_account_level))
+            end
+        end)
+        original_account_rank = nil
+        original_account_level = nil
+    end
+end
+
+------------------------------------------------------------
 -- Initialize AP Client
 ------------------------------------------------------------
 
@@ -348,6 +461,7 @@ APClient.on_item_send = function(info)
     if APOverlay then APOverlay.add_feed_item(info) end
 end
 APClient.on_disconnected = function()
+    restore_equipment_locks()
     if APOverlay then APOverlay.set_disconnected() end
 end
 APClient.on_slot_refused = function(reason_str)
@@ -662,4 +776,18 @@ RegisterKeyBind(Key.F9, function()
     end)
 end)
 
-log("  F1 = Lock to Auto Rifle | F2 = Unlock Crossbow | F3 = Connect | F4 = Overlay | F9 = Dump tags")
+-- F11: Toggle bRequiresUnlock on all equipment DAs
+RegisterKeyBind(Key.F11, function()
+    LoopAsync(1, function()
+        if next(original_unlock_flags) then
+            restore_equipment_locks()
+            log("F11: Equipment locks restored")
+        else
+            unlock_all_equipment()
+            log("F11: All equipment unlocked")
+        end
+        return true
+    end)
+end)
+
+log("  F1 = Lock to Auto Rifle | F2 = Unlock Crossbow | F3 = Connect | F4 = Overlay | F9 = Dump tags | F11 = Toggle unlock all")
