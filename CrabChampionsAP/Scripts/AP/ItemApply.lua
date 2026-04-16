@@ -723,19 +723,23 @@ function M.apply_item(ap_item_id)
     local equip_lock = _G.AP and _G.AP.equip_lock or nil
     local inv_sanitize = _G.AP and _G.AP.inv_sanitize or nil
 
-    -- Weapons/Abilities/Melee: add to allowed pool only (don't force-equip mid-run)
+    -- Weapons/Abilities/Melee: add to allowed pool + unlock in game UI
+    local unlock_da = _G.AP and _G.AP.unlock_equipment_da or nil
     if info.cat == CAT.WEAPON then
         if equip_lock then equip_lock.allow_item("weapon", info.full_name) end
+        if unlock_da then unlock_da(info.full_name) end
         M.unlocked[info.full_name] = true
         log("Unlocked weapon: " .. info.name)
         return
     elseif info.cat == CAT.ABILITY then
         if equip_lock then equip_lock.allow_item("ability", info.full_name) end
+        if unlock_da then unlock_da(info.full_name) end
         M.unlocked[info.full_name] = true
         log("Unlocked ability: " .. info.name)
         return
     elseif info.cat == CAT.MELEE then
         if equip_lock then equip_lock.allow_item("melee", info.full_name) end
+        if unlock_da then unlock_da(info.full_name) end
         M.unlocked[info.full_name] = true
         log("Unlocked melee: " .. info.name)
         return

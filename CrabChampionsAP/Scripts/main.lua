@@ -58,6 +58,9 @@ end
 -- AP Callbacks (fired from LoopAsync thread during poll)
 ------------------------------------------------------------
 
+-- Forward declaration: set later once the description system is defined
+local _on_item_received_for_descriptions = nil
+
 local function on_item(it)
     local item_id = tonumber(it.item) or 0
     local info = ItemData.from_ap_id(item_id)
@@ -72,6 +75,9 @@ local function on_item(it)
 
     -- Apply immediately — we're on the LoopAsync thread, no need to defer
     ItemApply.apply_item(item_id)
+
+    -- Track received item for description updates
+    if _on_item_received_for_descriptions then _on_item_received_for_descriptions(it) end
 
     -- Update equipment checklist if this was a weapon/melee/ability
     if APOverlay then
@@ -88,8 +94,449 @@ local function on_message(msg)
     if APOverlay then APOverlay.add_item_log(tostring(msg)) end
 end
 
+------------------------------------------------------------
+-- Equipment unlock: manage bRequiresUnlock on equipment DAs
+-- and save game unlocked arrays to control which equipment
+-- the player can select. Pool items start locked and unlock
+-- as AP sends them. Non-pool items are unlocked on connect.
+--
+-- Save game safety: before modifying the SG unlocked arrays,
+-- we copy SaveSlot.sav → SaveSlot_AP_backup.sav. On disconnect
+-- we restore from the in-memory snapshot and delete the backup.
+-- If the game crashes mid-session, the backup file persists and
+-- is auto-restored on next mod startup — zero risk to player data.
+------------------------------------------------------------
+local original_unlock_flags = {}  -- full_name -> original bRequiresUnlock value
+local original_account_rank = nil
+local original_account_level = nil
+
+-- Save game array names for equipment unlock tracking
+local SG_UNLOCK_ARRAYS = {"UnlockedWeapons", "UnlockedAbilities", "UnlockedMeleeWeapons"}
+
+-- Map DA class name → SG array name
+local CLASS_TO_SG_ARRAY = {
+    CrabWeaponDA  = "UnlockedWeapons",
+    CrabAbilityDA = "UnlockedAbilities",
+    CrabMeleeDA   = "UnlockedMeleeWeapons",
+}
+
+-- Resolve save game directory path
+local SAVE_DIR = nil
+pcall(function()
+    local appdata = os.getenv("LOCALAPPDATA")
+    if appdata then
+        SAVE_DIR = appdata .. "\\CrabChampions\\Saved\\SaveGames\\"
+    end
+end)
+
+local SAVE_FILE = SAVE_DIR and (SAVE_DIR .. "SaveSlot.sav") or nil
+local BACKUP_FILE = SAVE_DIR and (SAVE_DIR .. "SaveSlot_AP_backup.sav") or nil
+
+--- Copy a file from src to dst (binary). Returns true on success.
+local function copy_file(src, dst)
+    local inp, err1 = io.open(src, "rb")
+    if not inp then
+        log("File copy failed (open src): " .. tostring(err1))
+        return false
+    end
+    local data = inp:read("*a")
+    inp:close()
+    local out, err2 = io.open(dst, "wb")
+    if not out then
+        log("File copy failed (open dst): " .. tostring(err2))
+        return false
+    end
+    out:write(data)
+    out:close()
+    return true
+end
+
+--- Check if a file exists.
+local function file_exists(path)
+    local f = io.open(path, "rb")
+    if f then f:close(); return true end
+    return false
+end
+
+--- Crash recovery: if a backup exists from a previous crashed session,
+--- restore it over SaveSlot.sav before the game loads the save.
+local function recover_backup_save()
+    if not BACKUP_FILE or not SAVE_FILE then return end
+    if file_exists(BACKUP_FILE) then
+        log("RECOVERY: Found AP backup save from a previous crashed session")
+        if copy_file(BACKUP_FILE, SAVE_FILE) then
+            os.remove(BACKUP_FILE)
+            log("RECOVERY: Restored original save and deleted backup")
+        else
+            log("RECOVERY: Failed to restore — backup preserved at " .. BACKUP_FILE)
+        end
+    end
+end
+
+--- Create a backup of the save file before modifying SG arrays.
+local function create_save_backup()
+    if not SAVE_FILE or not BACKUP_FILE then
+        log("Save backup: cannot resolve save path")
+        return false
+    end
+    if copy_file(SAVE_FILE, BACKUP_FILE) then
+        log("Save backup created: " .. BACKUP_FILE)
+        return true
+    end
+    return false
+end
+
+--- Delete the backup file (called on clean disconnect).
+local function delete_save_backup()
+    if not BACKUP_FILE then return end
+    if file_exists(BACKUP_FILE) then
+        os.remove(BACKUP_FILE)
+        log("Save backup deleted (clean disconnect)")
+    end
+end
+
+--- Lock ALL equipment: backup save, snapshot+clear SG arrays, set bRequiresUnlock.
+local function lock_all_equipment()
+    original_unlock_flags = {}
+    local locked = 0
+
+    -- 1) Create filesystem backup of save file (crash safety net)
+    create_save_backup()
+
+    -- 2) Snapshot + clear save game unlocked arrays so lobby UI hides locked items
+    if AP_SG_Snapshot then
+        for _, arr in ipairs(SG_UNLOCK_ARRAYS) do
+            pcall(AP_SG_Snapshot, arr)
+        end
+        for _, arr in ipairs(SG_UNLOCK_ARRAYS) do
+            pcall(AP_SG_Clear, arr)
+        end
+        log("Save game unlocked arrays: snapshotted and cleared")
+    end
+
+    -- 3) Set bRequiresUnlock=true on all equipment DAs
+    for _, class_name in ipairs({"CrabWeaponDA", "CrabAbilityDA", "CrabMeleeDA"}) do
+        pcall(function()
+            local all = FindAllOf(class_name)
+            if not all then return end
+            for _, da in ipairs(all) do
+                if da and (not da.IsValid or da:IsValid()) then
+                    pcall(function()
+                        local fn = da:GetFullName()
+                        original_unlock_flags[fn] = da.bRequiresUnlock or false
+                        da.bRequiresUnlock = true
+                        locked = locked + 1
+                    end)
+                end
+            end
+        end)
+    end
+
+    log("Equipment lock: set bRequiresUnlock=true on " .. locked .. " DAs")
+
+    -- 4) Max out AccountRank and AccountLevel to unlock all difficulty modifiers
+    pcall(function()
+        local pss = FindAllOf("CrabPS")
+        if pss and #pss > 0 then
+            local ps = pss[1]
+            original_account_rank = ps.AccountRank
+            original_account_level = ps.AccountLevel
+            ps.AccountRank = 8   -- Prismatic (highest)
+            ps.AccountLevel = 100
+            log("Account rank set to Prismatic (was " .. tostring(original_account_rank) .. "), level set to 100 (was " .. tostring(original_account_level) .. ")")
+        end
+    end)
+end
+
+--- Unlock a specific equipment DA by full_name (set bRequiresUnlock=false + add to SG).
+--- Called when non-pool equipment is pre-allowed or AP items are received.
+local function unlock_equipment_da(full_name)
+    for _, class_name in ipairs({"CrabWeaponDA", "CrabAbilityDA", "CrabMeleeDA"}) do
+        pcall(function()
+            local all = FindAllOf(class_name)
+            if not all then return end
+            for _, da in ipairs(all) do
+                if da and (not da.IsValid or da:IsValid()) then
+                    pcall(function()
+                        if da:GetFullName() == full_name then
+                            da.bRequiresUnlock = false
+                            -- Also add to save game unlocked array so lobby UI shows it
+                            local sg_arr = CLASS_TO_SG_ARRAY[class_name]
+                            if sg_arr and AP_SG_Add then
+                                pcall(AP_SG_Add, sg_arr, da:GetAddress())
+                            end
+                        end
+                    end)
+                end
+            end
+        end)
+    end
+end
+
+--- Restore equipment locks: restore SG arrays, bRequiresUnlock flags, account rank.
+local function restore_equipment_locks()
+    -- 1) Restore save game unlocked arrays from in-memory snapshot
+    if AP_SG_Restore then
+        for _, arr in ipairs(SG_UNLOCK_ARRAYS) do
+            pcall(AP_SG_Restore, arr)
+        end
+        log("Save game unlocked arrays: restored from snapshot")
+    end
+
+    -- 2) Delete the filesystem backup (clean disconnect = no recovery needed)
+    delete_save_backup()
+
+    -- 3) Restore bRequiresUnlock on all DAs
+    if next(original_unlock_flags) then
+        local total = 0
+        for _, class_name in ipairs({"CrabWeaponDA", "CrabAbilityDA", "CrabMeleeDA"}) do
+            pcall(function()
+                local all = FindAllOf(class_name)
+                if not all then return end
+                for _, da in ipairs(all) do
+                    if da and (not da.IsValid or da:IsValid()) then
+                        pcall(function()
+                            local fn = da:GetFullName()
+                            if original_unlock_flags[fn] ~= nil then
+                                da.bRequiresUnlock = original_unlock_flags[fn]
+                                total = total + 1
+                            end
+                        end)
+                    end
+                end
+            end)
+        end
+        original_unlock_flags = {}
+        log("Equipment unlock: restored bRequiresUnlock on " .. total .. " DAs")
+    end
+
+    -- 4) Deactivate C++ equip lock enforcement
+    if AP_EquipLock_SetActive then
+        pcall(AP_EquipLock_SetActive, false)
+        log("EquipLock deactivated")
+    end
+
+    -- 5) Restore AccountRank and AccountLevel
+    if original_account_rank ~= nil then
+        pcall(function()
+            local pss = FindAllOf("CrabPS")
+            if pss and #pss > 0 then
+                pss[1].AccountRank = original_account_rank
+                pss[1].AccountLevel = original_account_level
+                log("Account rank restored to " .. tostring(original_account_rank) .. ", level to " .. tostring(original_account_level))
+            end
+        end)
+        original_account_rank = nil
+        original_account_level = nil
+    end
+end
+
+-- Run crash recovery on mod startup (before game loads the save)
+recover_backup_save()
+
+-- Expose unlock function globally so ItemApply can unlock DAs as items arrive
+AP = AP or {}
+AP.unlock_equipment_da = unlock_equipment_da
+
+------------------------------------------------------------
+-- Pickup description updates: show what AP item is at each
+-- location, whether it's already been checked, and whether
+-- own items have been received.
+------------------------------------------------------------
+local original_descriptions = {}  -- full_name -> original Description string
+local location_to_da = {}         -- location_id -> { full_name, da }
+local scouted_info = {}           -- location_id -> { item_name, player_name, player_slot, item_id, flags }
+local received_da_set = {}        -- da_full_name -> true, for items we've been sent via AP
+
+--- Build a reverse map from location_id → DA for all pickup-type DAs.
+local function build_location_da_map()
+    location_to_da = {}
+    local count = 0
+    local pickup_classes = {
+        { class = "CrabPerkDA",       kind = "perk" },
+        { class = "CrabRelicDA",      kind = "relic" },
+        { class = "CrabWeaponModDA",  kind = "weapon_mod" },
+        { class = "CrabMeleeModDA",   kind = "melee_mod" },
+        { class = "CrabAbilityModDA", kind = "ability_mod" },
+    }
+    for _, info in ipairs(pickup_classes) do
+        pcall(function()
+            local all = FindAllOf(info.class)
+            if not all then return end
+            for _, da in ipairs(all) do
+                if da and (not da.IsValid or da:IsValid()) then
+                    pcall(function()
+                        local fn = da:GetFullName()
+                        local loc_id = LocationData.from_da(fn)
+                        if loc_id then
+                            location_to_da[loc_id] = { full_name = fn, da = da }
+                            count = count + 1
+                        end
+                    end)
+                end
+            end
+        end)
+    end
+    log("Built location→DA map: " .. count .. " pickup locations")
+    return count
+end
+
+--- Scout all pickup locations to get item info from the AP server.
+local function scout_all_pickups()
+    local ids = {}
+    for loc_id, _ in pairs(location_to_da) do
+        ids[#ids + 1] = loc_id
+    end
+    if #ids > 0 then
+        APClient:send_scouts(ids)
+        log("Scouting " .. #ids .. " pickup locations...")
+    end
+end
+
+--- Update a single DA's Description with AP info.
+local function update_da_description(da, full_name, item_name, player_name, is_checked, is_received)
+    pcall(function()
+        -- Snapshot original description once
+        if original_descriptions[full_name] == nil then
+            original_descriptions[full_name] = da.Description or ""
+        end
+
+        local parts = {}
+
+        if is_checked then
+            parts[#parts + 1] = "[CHECKED]"
+        end
+        if is_received then
+            parts[#parts + 1] = "[RECEIVED]"
+        end
+
+        parts[#parts + 1] = tostring(player_name) .. "'s " .. tostring(item_name)
+
+        da.Description = table.concat(parts, " ")
+    end)
+end
+
+--- Re-render a single location's DA description from cached scouted info.
+local function refresh_da_description(loc_id)
+    local da_info = location_to_da[loc_id]
+    local info = scouted_info[loc_id]
+    if not da_info or not info then return end
+
+    local is_checked = APClient:is_location_checked(loc_id)
+    -- [RECEIVED] means the player has been sent this in-game item via AP,
+    -- so picking it up won't get stripped from inventory.
+    local is_received = received_da_set[da_info.full_name] == true
+    update_da_description(da_info.da, da_info.full_name, info.item_name, info.player_name, is_checked, is_received)
+end
+
+--- Restore all DA descriptions to their original values.
+local function restore_all_descriptions()
+    if not next(original_descriptions) then return end
+    local total = 0
+    local pickup_classes = {"CrabPerkDA", "CrabRelicDA", "CrabWeaponModDA", "CrabMeleeModDA", "CrabAbilityModDA"}
+    for _, class_name in ipairs(pickup_classes) do
+        pcall(function()
+            local all = FindAllOf(class_name)
+            if not all then return end
+            for _, da in ipairs(all) do
+                if da and (not da.IsValid or da:IsValid()) then
+                    pcall(function()
+                        local fn = da:GetFullName()
+                        if original_descriptions[fn] ~= nil then
+                            da.Description = original_descriptions[fn]
+                            total = total + 1
+                        end
+                    end)
+                end
+            end
+        end)
+    end
+    original_descriptions = {}
+    log("Restored original descriptions on " .. total .. " DAs")
+end
+
+--- Handle scouted location info from the AP server.
+local function on_location_info(items)
+    if type(items) ~= "table" then return end
+    local updated = 0
+    for _, entry in ipairs(items) do
+        pcall(function()
+            local loc_id = tonumber(entry.location)
+            local item_id = tonumber(entry.item)
+            local player_slot = tonumber(entry.player)
+            local flags = tonumber(entry.flags) or 0
+
+            if not loc_id or not item_id then return end
+
+            local da_info = location_to_da[loc_id]
+            if not da_info then return end
+
+            -- Resolve item name and player name
+            local player_game = nil
+            pcall(function() player_game = APClient._client:get_player_game(player_slot) end)
+            local item_name = nil
+            pcall(function() item_name = APClient._client:get_item_name(item_id, player_game or "") end)
+            item_name = item_name or ("Item#" .. tostring(item_id))
+
+            local player_name = nil
+            pcall(function() player_name = APClient._client:get_player_alias(player_slot) end)
+            player_name = player_name or ("Player" .. tostring(player_slot))
+
+            -- Cache scouted info for live re-rendering
+            scouted_info[loc_id] = {
+                item_name = item_name,
+                player_name = player_name,
+                player_slot = player_slot,
+                item_id = item_id,
+                flags = flags,
+            }
+
+            -- Render the description
+            refresh_da_description(loc_id)
+            updated = updated + 1
+        end)
+    end
+    log("Updated descriptions on " .. updated .. " pickup DAs")
+end
+
+--- Called when locations are checked (during a run or from server sync).
+--- Updates DA descriptions to show [CHECKED] status live.
+local function on_location_checked(location_ids)
+    if type(location_ids) ~= "table" then return end
+    for _, loc_id in ipairs(location_ids) do
+        refresh_da_description(loc_id)
+    end
+end
+
+--- Called when we receive an item — track its DA so descriptions can show [RECEIVED].
+--- [RECEIVED] means the player has this in-game item via AP and it won't be stripped.
+local function on_item_received_for_descriptions(it)
+    local item_id = tonumber(it.item)
+    if not item_id then return end
+
+    -- Resolve this AP item to its DA full_name
+    local info = ItemData.from_ap_id(item_id)
+    if not info or not info.full_name then return end
+
+    received_da_set[info.full_name] = true
+
+    -- Refresh the location that corresponds to this DA (if scouted)
+    for loc_id, da_info in pairs(location_to_da) do
+        if da_info.full_name == info.full_name then
+            refresh_da_description(loc_id)
+        end
+    end
+end
+-- Wire up the forward declaration now that the function exists
+_on_item_received_for_descriptions = on_item_received_for_descriptions
+
 local function on_slot_connected(slot_data)
     clog("STATUS", "Slot data received")
+
+    -- Reset description caches for a fresh session
+    scouted_info = {}
+    received_da_set = {}
+    location_to_da = {}
 
     -- Reset item state and clear inventory to prevent duplicates on reconnect.
     -- All items will be re-sent by the server and re-applied fresh.
@@ -165,41 +612,54 @@ local function on_slot_connected(slot_data)
     end
     clog("INFO", sep)
 
-    -- Pre-allow non-pool equipment in equip_lock so they're usable from start.
-    -- Pool equipment must be received as AP items (handled by ItemApply).
-    local equip_lock = _G.AP and _G.AP.equip_lock or nil
-    if equip_lock then
-        local CAT = ItemData.CATEGORY
-        -- Non-pool weapons
-        for _, wname in ipairs(LocationData.weapon_names) do
-            if not LocationData.is_pool_weapon(wname) then
-                local fn, da = ItemData.get_da(CAT.WEAPON, wname)
-                if fn then equip_lock.allow_item("weapon", fn) end
-            end
-        end
-        -- Non-pool melee
-        for _, mname in ipairs(LocationData.melee_names) do
-            if not LocationData.is_pool_melee(mname) then
-                local fn, da = ItemData.get_da(CAT.MELEE, mname)
-                if fn then equip_lock.allow_item("melee", fn) end
-            end
-        end
-        -- Non-pool abilities
-        for _, aname in ipairs(LocationData.ability_names) do
-            if not LocationData.is_pool_ability(aname) then
-                local fn, da = ItemData.get_da(CAT.ABILITY, aname)
-                if fn then equip_lock.allow_item("ability", fn) end
-            end
-        end
-        local np_w = #LocationData.weapon_names - #pw
-        local np_m = #LocationData.melee_names - #pm
-        local np_a = #LocationData.ability_names - #pa
-        clog("STATUS", "Non-pool equipment pre-allowed (" ..
-            np_w .. " weapons, " .. np_m .. " melee, " .. np_a .. " abilities)")
+    -- Lock all equipment first, then selectively unlock non-pool items.
+    -- Pool equipment stays locked (bRequiresUnlock=true) until AP sends it.
+    -- This also snapshots original values and maxes account rank.
+    lock_all_equipment()
 
-        -- Force immediate enforcement in case player already has a disallowed weapon
+    -- Pre-allow non-pool equipment: unlock in game UI + add to equip_lock allowed set.
+    local equip_lock = _G.AP and _G.AP.equip_lock or nil
+    local CAT = ItemData.CATEGORY
+    local np_w, np_m, np_a = 0, 0, 0
+
+    -- Non-pool weapons
+    for _, wname in ipairs(LocationData.weapon_names) do
+        if not LocationData.is_pool_weapon(wname) then
+            local fn, da = ItemData.get_da(CAT.WEAPON, wname)
+            if fn then
+                unlock_equipment_da(fn)
+                if equip_lock then equip_lock.allow_item("weapon", fn) end
+                np_w = np_w + 1
+            end
+        end
+    end
+    -- Non-pool melee
+    for _, mname in ipairs(LocationData.melee_names) do
+        if not LocationData.is_pool_melee(mname) then
+            local fn, da = ItemData.get_da(CAT.MELEE, mname)
+            if fn then
+                unlock_equipment_da(fn)
+                if equip_lock then equip_lock.allow_item("melee", fn) end
+                np_m = np_m + 1
+            end
+        end
+    end
+    -- Non-pool abilities
+    for _, aname in ipairs(LocationData.ability_names) do
+        if not LocationData.is_pool_ability(aname) then
+            local fn, da = ItemData.get_da(CAT.ABILITY, aname)
+            if fn then
+                unlock_equipment_da(fn)
+                if equip_lock then equip_lock.allow_item("ability", fn) end
+                np_a = np_a + 1
+            end
+        end
+    end
+    clog("STATUS", "Non-pool equipment unlocked (" ..
+        np_w .. " weapons, " .. np_m .. " melee, " .. np_a .. " abilities)")
+
+    if equip_lock then
         equip_lock.refresh_maps()
-        -- Trigger a deferred enforce on next tick
         equip_lock.request_enforce("slot_connected")
     end
 
@@ -251,9 +711,18 @@ local function on_slot_connected(slot_data)
         end
     end
 
-    -- Unlock all equipment so new players can use any weapon/ability/melee
-    -- that AP sends them, even if they haven't unlocked it in the base game.
-    unlock_all_equipment()
+    -- Scout all pickup locations to update DA descriptions with AP item info.
+    -- Build the location→DA map, then send scout requests to the server.
+    -- The on_location_info callback will update descriptions when results arrive.
+    if LocationData.pickup_checks then
+        build_location_da_map()
+        -- Delay scouting slightly so the server has time to send checked locations first
+        LoopAsync(2000, function()
+            scout_all_pickups()
+            return true
+        end)
+    end
+
 end
 
 -- DeathLink state: prevent loops when we kill the player from a received deathlink
@@ -361,95 +830,6 @@ local function on_deathlink(source, cause)
 end
 
 ------------------------------------------------------------
--- Equipment unlock: set bRequiresUnlock=false on all
--- equipment DAs so new players can use everything while
--- connected to AP. Restore original values on disconnect.
-------------------------------------------------------------
-local original_unlock_flags = {}  -- full_name -> original bRequiresUnlock value
-local original_account_rank = nil
-local original_account_level = nil
-
-local function unlock_all_equipment()
-    original_unlock_flags = {}
-    local total = 0
-
-    for _, class_name in ipairs({"CrabWeaponDA", "CrabAbilityDA", "CrabMeleeDA"}) do
-        pcall(function()
-            local all = FindAllOf(class_name)
-            if not all then return end
-            for _, da in ipairs(all) do
-                if da and (not da.IsValid or da:IsValid()) then
-                    pcall(function()
-                        local fn = da:GetFullName()
-                        local orig = da.bRequiresUnlock
-                        if orig then
-                            original_unlock_flags[fn] = true
-                            da.bRequiresUnlock = false
-                            total = total + 1
-                        end
-                    end)
-                end
-            end
-        end)
-    end
-
-    log("Equipment unlock: cleared bRequiresUnlock on " .. total .. " DAs")
-
-    -- Also max out AccountRank and AccountLevel to unlock all difficulty modifiers
-    pcall(function()
-        local pss = FindAllOf("CrabPS")
-        if pss and #pss > 0 then
-            local ps = pss[1]
-            original_account_rank = ps.AccountRank
-            original_account_level = ps.AccountLevel
-            ps.AccountRank = 8   -- Prismatic (highest)
-            ps.AccountLevel = 100
-            log("Account rank set to Prismatic (was " .. tostring(original_account_rank) .. "), level set to 100 (was " .. tostring(original_account_level) .. ")")
-        end
-    end)
-end
-
-local function restore_equipment_locks()
-    if not next(original_unlock_flags) then return end
-    local total = 0
-
-    for _, class_name in ipairs({"CrabWeaponDA", "CrabAbilityDA", "CrabMeleeDA"}) do
-        pcall(function()
-            local all = FindAllOf(class_name)
-            if not all then return end
-            for _, da in ipairs(all) do
-                if da and (not da.IsValid or da:IsValid()) then
-                    pcall(function()
-                        local fn = da:GetFullName()
-                        if original_unlock_flags[fn] then
-                            da.bRequiresUnlock = true
-                            total = total + 1
-                        end
-                    end)
-                end
-            end
-        end)
-    end
-
-    original_unlock_flags = {}
-    log("Equipment unlock: restored bRequiresUnlock on " .. total .. " DAs")
-
-    -- Restore AccountRank and AccountLevel
-    if original_account_rank ~= nil then
-        pcall(function()
-            local pss = FindAllOf("CrabPS")
-            if pss and #pss > 0 then
-                pss[1].AccountRank = original_account_rank
-                pss[1].AccountLevel = original_account_level
-                log("Account rank restored to " .. tostring(original_account_rank) .. ", level to " .. tostring(original_account_level))
-            end
-        end)
-        original_account_rank = nil
-        original_account_level = nil
-    end
-end
-
-------------------------------------------------------------
 -- Initialize AP Client
 ------------------------------------------------------------
 
@@ -460,8 +840,15 @@ APClient.on_deathlink = on_deathlink
 APClient.on_item_send = function(info)
     if APOverlay then APOverlay.add_feed_item(info) end
 end
+APClient.on_location_info = on_location_info
+APClient.on_location_checked = on_location_checked
 APClient.on_disconnected = function()
     restore_equipment_locks()
+    restore_all_descriptions()
+    -- Clear description caches
+    scouted_info = {}
+    received_da_set = {}
+    location_to_da = {}
     if APOverlay then APOverlay.set_disconnected() end
 end
 APClient.on_slot_refused = function(reason_str)
@@ -776,15 +1163,15 @@ RegisterKeyBind(Key.F9, function()
     end)
 end)
 
--- F11: Toggle bRequiresUnlock on all equipment DAs
+-- F11: Toggle equipment lock state (lock all / restore originals)
 RegisterKeyBind(Key.F11, function()
     LoopAsync(1, function()
         if next(original_unlock_flags) then
             restore_equipment_locks()
             log("F11: Equipment locks restored")
         else
-            unlock_all_equipment()
-            log("F11: All equipment unlocked")
+            lock_all_equipment()
+            log("F11: All equipment locked (bRequiresUnlock=true)")
         end
         return true
     end)
