@@ -42,6 +42,7 @@ local Client = {
 
     -- Outgoing queues (populated by hooks, consumed by LoopAsync)
     _outgoing_checks = {},   -- array of location_ids to send
+    _outgoing_scouts = {},   -- array of location_ids to scout
     _outgoing_say = {},      -- array of chat messages
     _outgoing_status = nil,  -- status code to send
 
@@ -57,6 +58,8 @@ local Client = {
     on_slot_refused = nil,   -- function(reason_str)
     on_deathlink = nil,      -- function(source, cause)
     on_item_send = nil,      -- function(info) — structured item send {sender, receiver, item, location, flags, is_self_send, is_self_recv}
+    on_location_info = nil,  -- function(items) — scouted location info [{item, location, player, flags}, ...]
+    on_location_checked = nil, -- function(location_ids) — called when locations are marked checked
 }
 
 local LOG_PREFIX = "[CrabAP]"
@@ -199,7 +202,9 @@ function Client:_register_handlers()
     c:set_slot_connected_handler(function(slot_data)
         self._slot_connected = true
         self.slot_data = slot_data or {}
-        log("Slot connected successfully")
+        -- Cache our slot number for quick access
+        pcall(function() self.slot_number = c:get_player_number() or -1 end)
+        log("Slot connected successfully (slot #" .. tostring(self.slot_number) .. ")")
 
         if self.on_slot_connected then
             local ok, err = pcall(self.on_slot_connected, self.slot_data)
@@ -227,8 +232,14 @@ function Client:_register_handlers()
 
     c:set_location_checked_handler(function(locations)
         if type(locations) == "table" then
+            local checked_ids = {}
             for _, loc in ipairs(locations) do
-                self._checked[tonumber(loc)] = true
+                local lid = tonumber(loc)
+                self._checked[lid] = true
+                checked_ids[#checked_ids + 1] = lid
+            end
+            if self.on_location_checked and #checked_ids > 0 then
+                pcall(self.on_location_checked, checked_ids)
             end
         end
     end)
@@ -243,6 +254,12 @@ function Client:_register_handlers()
 
     c:set_data_package_changed_handler(function(data)
         log("Data package updated")
+    end)
+
+    c:set_location_info_handler(function(items)
+        if self.on_location_info then
+            pcall(self.on_location_info, items)
+        end
     end)
 end
 
@@ -442,6 +459,14 @@ function Client:_process_outgoing()
         end
     end
 
+    -- Location scouts
+    if #self._outgoing_scouts > 0 then
+        local scouts = self._outgoing_scouts
+        self._outgoing_scouts = {}
+        self._client:LocationScouts(scouts)
+        log("Sent scout request for " .. #scouts .. " location(s)")
+    end
+
     -- Chat messages
     if #self._outgoing_say > 0 then
         for _, text in ipairs(self._outgoing_say) do
@@ -558,6 +583,7 @@ function Client:_execute_command(cmd, args)
         self._slot_connected = false
         self.enabled = false
         log("Disconnected by user")
+        if self.on_disconnected then pcall(self.on_disconnected) end
 
     elseif cmd == "connect" then
         -- server/slot/password are already set by the caller (F3 reads from
@@ -569,6 +595,7 @@ function Client:_execute_command(cmd, args)
         self._applied_index = -1
         self._pending_items = {}
         self._checked = {}
+        self._outgoing_scouts = {}
         self.enabled = true
         self._deferred_init = true
         log("Reconnecting to " .. self.server .. " as " .. self.slot .. "...")
@@ -611,6 +638,10 @@ function Client:send_check(location_id)
     if self._checked[location_id] then return end
     self._checked[location_id] = true
     self._outgoing_checks[#self._outgoing_checks + 1] = location_id
+    -- Notify description system so it can update [CHECKED] live
+    if self.on_location_checked then
+        pcall(self.on_location_checked, { location_id })
+    end
 end
 
 --- Queue multiple location checks.
@@ -618,6 +649,17 @@ end
 function Client:send_checks(location_ids)
     for _, lid in ipairs(location_ids) do
         self:send_check(lid)
+    end
+end
+
+--- Queue a location scout request.
+---@param location_ids table Array of numeric location IDs to scout
+function Client:send_scouts(location_ids)
+    for _, lid in ipairs(location_ids) do
+        lid = tonumber(lid)
+        if lid then
+            self._outgoing_scouts[#self._outgoing_scouts + 1] = lid
+        end
     end
 end
 

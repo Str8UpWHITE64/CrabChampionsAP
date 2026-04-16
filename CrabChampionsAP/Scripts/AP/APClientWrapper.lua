@@ -140,6 +140,10 @@ function APClientWrapper.new(uuid, game_name, server)
         safe_call("Bounce", data, games, slots, tags)
     end
 
+    function wrapped:LocationScouts(locations, create_as_hint)
+        safe_call("LocationScouts", locations, create_as_hint or 0)
+    end
+
     -- ---------------------------------------------------------------
     -- Name resolution (provided by apclientpp after data package loads)
     -- ---------------------------------------------------------------
@@ -158,6 +162,10 @@ function APClientWrapper.new(uuid, game_name, server)
 
     function wrapped:get_location_name(location_id, game_name)
         return safe_call("get_location_name", location_id, game_name or "")
+    end
+
+    function wrapped:get_player_number()
+        return safe_call("get_player_number")
     end
 
     -- ---------------------------------------------------------------
@@ -227,6 +235,10 @@ function APClientWrapper.new(uuid, game_name, server)
 
     function wrapped:set_data_package_changed_handler(fn)
         register_handler("data_package_changed", fn)
+    end
+
+    function wrapped:set_location_info_handler(fn)
+        register_handler("location_info", fn)
     end
 
     function wrapped:set_retrieved_handler(fn)
