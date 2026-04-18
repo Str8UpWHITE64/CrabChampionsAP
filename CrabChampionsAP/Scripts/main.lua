@@ -47,7 +47,7 @@ local function try_create_overlay()
         log("In-game overlay created")
         if APClient:is_slot_connected() then
             APOverlay.set_connected(APClient.slot or "Connected")
-            APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData)
+            APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, APClient)
         else
             APOverlay.set_disconnected()
         end
@@ -84,7 +84,7 @@ local function on_item(it)
         if info and (info.cat == ItemData.CATEGORY.WEAPON
                   or info.cat == ItemData.CATEGORY.MELEE
                   or info.cat == ItemData.CATEGORY.ABILITY) then
-            APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData)
+            APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, APClient)
         end
     end
 end
@@ -500,11 +500,24 @@ local function on_location_info(items)
 end
 
 --- Called when locations are checked (during a run or from server sync).
---- Updates DA descriptions to show [CHECKED] status live.
+--- Updates DA descriptions to show [CHECKED] status live, and refreshes
+--- the equipment-progress overlay so completion check marks appear.
 local function on_location_checked(location_ids)
     if type(location_ids) ~= "table" then return end
+    local saw_equipment_run = false
     for _, loc_id in ipairs(location_ids) do
         refresh_da_description(loc_id)
+        -- Detect equipment-run regions (4=weapon, 5=melee, 6=ability) so we
+        -- only refresh the overlay for relevant checks.
+        local region = math.floor((loc_id - LocationData.BASE_ID) / LocationData.TABLE_OFFSET)
+        if region == LocationData.REGION.weapon_run
+           or region == LocationData.REGION.melee_run
+           or region == LocationData.REGION.ability_run then
+            saw_equipment_run = true
+        end
+    end
+    if saw_equipment_run and APOverlay then
+        APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, APClient)
     end
 end
 
@@ -570,9 +583,83 @@ local function on_slot_connected(slot_data)
     -- Configure location data and pickup watcher with slot options
     LocationData.configure(slot_data)
 
-    -- DeathLink tag is always included in connection tags.
-    -- The death_link guard in LocationData controls whether we actually
-    -- send/receive deaths — the tag alone is harmless when disabled.
+    -- Pre-allow items that are intentionally NOT AP-tracked, so picking
+    -- them up naturally during a run doesn't trigger InventorySanitize to
+    -- strip them.  Two cases require this:
+    --   1. greed_item_mode == skip — greed items aren't in the AP pool
+    --      and the player must find them naturally
+    --   2. limit_pickup_locations == true — items not in the chosen
+    --      subset have no AP location and are pure in-game pickups
+    do
+        local is = _G.AP and _G.AP.inv_sanitize or nil
+        if is then
+            local kind_to_set = {
+                perk        = is.allowed_perk_full,
+                relic       = is.allowed_relic_full,
+                weapon_mod  = is.allowed_weapon_mod_full,
+                melee_mod   = is.allowed_melee_mod_full,
+                ability_mod = is.allowed_ability_mod_full,
+            }
+            local kind_to_cat = {
+                perk        = ItemData.CATEGORY.PERK,
+                relic       = ItemData.CATEGORY.RELIC,
+                weapon_mod  = ItemData.CATEGORY.WEAPON_MOD,
+                melee_mod   = ItemData.CATEGORY.MELEE_MOD,
+                ability_mod = ItemData.CATEGORY.ABILITY_MOD,
+            }
+
+            local function pre_allow(kind, names)
+                local set = kind_to_set[kind]
+                local cat = kind_to_cat[kind]
+                if not set or not cat or not names then return 0 end
+                local count = 0
+                for _, name in ipairs(names) do
+                    local fn = ItemData.get_da(cat, name)
+                    if fn and not set[fn] then
+                        set[fn] = true
+                        count = count + 1
+                    end
+                end
+                return count
+            end
+
+            -- 1. Greed items in skip mode
+            if LocationData.greed_item_mode == 2 then
+                local total = 0
+                for kind, names in pairs(LocationData.GREED_BY_KIND or {}) do
+                    total = total + pre_allow(kind, names)
+                end
+                clog("INFO", "  Greed mode = skip: pre-allowed " .. total
+                    .. " greed items in inventory")
+            end
+
+            -- 2. Items outside the chosen subset for limit_pickup_locations
+            if LocationData.limit_pickup_locations
+                    and LocationData._has_pickup_subsets then
+                local total = 0
+                for kind, all_names in pairs(LocationData.PICKUP_NAMES_BY_KIND or {}) do
+                    local subset = LocationData.pickup_subsets[kind] or {}
+                    local non_chosen = {}
+                    for _, name in ipairs(all_names) do
+                        if not subset[name] then
+                            non_chosen[#non_chosen + 1] = name
+                        end
+                    end
+                    total = total + pre_allow(kind, non_chosen)
+                end
+                clog("INFO", "  Limit pickup locations: pre-allowed "
+                    .. total .. " non-subset items in inventory")
+            end
+        end
+    end
+
+    -- Sync the DeathLink tag with the slot's death_link option.
+    -- We connected with just {"AP"} as tags; if death_link is enabled, add
+    -- "DeathLink" via ConnectUpdate so the server includes us in deathlink
+    -- broadcasts.  Otherwise leave tags as-is.
+    if LocationData.death_link then
+        APClient:update_tags({ "AP", "DeathLink" })
+    end
 
     -- Log goal summary so the player knows what equipment they need
     local opts = slot_data and slot_data.options or slot_data or {}
@@ -667,7 +754,7 @@ local function on_slot_connected(slot_data)
     if APOverlay then
         APOverlay.set_connected(APClient.slot or "Connected")
         APOverlay.hide_panel()
-        APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData)
+        APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, APClient)
     end
 
     -- Deferred victory check: on reconnect, the server sends already-checked
