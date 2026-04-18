@@ -65,6 +65,43 @@ M.starting_perk_slots = 24
 M.starting_weapon_mod_slots = 24
 M.starting_ability_mod_slots = 12
 M.starting_melee_mod_slots = 12
+M.limit_pickup_pool = false
+M.limit_pickup_locations = false
+
+-- Greed items grouped by pickup kind — kept in sync with apworld
+-- GREED_ITEM_NAMES.  Used both to filter pickup checks (so locations the
+-- server doesn't have don't get sent) AND to pre-allow these items in
+-- InventorySanitize when greed_item_mode == skip (so natural in-game
+-- pickups stay in the player's inventory).
+M.GREED_BY_KIND = {
+    perk = {
+        "Big Bones", "Bribe", "Brute Force", "Damage Seeker", "Double Trouble",
+        "Glass Cannon", "Juggernaut", "Leap Of Faith", "Limited Loot",
+        "Rising Star", "Slippery Slope", "Up The Ante", "Workaholic",
+    },
+    relic = {
+        "High Roller", "Hoarder Backpack", "Overspill Goblet",
+        "Ring Of Favoritism", "Ring Of Tankiness", "Trigger Ring",
+        "Upgrade Ring",
+    },
+    melee_mod = { "Brawler" },
+}
+
+-- Flat lookup: name -> true.  Built from GREED_BY_KIND for fast checks.
+M.GREED_ITEM_NAMES = {}
+for _, names in pairs(M.GREED_BY_KIND) do
+    for _, n in ipairs(names) do
+        M.GREED_ITEM_NAMES[n] = true
+    end
+end
+
+-- Per-category pickup subsets (name -> true) populated from slot_data when
+-- the slot enables limit_pickup_locations or limit_pickup_pool.
+M.pickup_subsets = {
+    perk = {}, relic = {},
+    weapon_mod = {}, melee_mod = {}, ability_mod = {},
+}
+M._has_pickup_subsets = false
 
 -- Completion requirements: populated by configure()
 M.weapons_for_completion = 1
@@ -75,6 +112,15 @@ M.ability_for_completion = 0
 M.pool_weapons = {}
 M.pool_melee = {}
 M.pool_abilities = {}
+
+-- Set of valid location IDs known to the server (location_id -> true).
+-- Populated by APClient from the Connected packet's missing_locations +
+-- checked_locations arrays via set_location_allowlist().  Used by
+-- is_valid_location_id() so the client never sends a check for a location
+-- the server didn't generate (which would otherwise crash the server with
+-- a KeyError).
+M.valid_location_ids = {}
+M._has_location_allowlist = false
 
 --- Configure from slot_data received on connection.
 function M.configure(slot_data)
@@ -97,6 +143,35 @@ function M.configure(slot_data)
     M.weapons_for_completion = tonumber(opts.weapons_for_completion) or 1
     M.melee_for_completion = tonumber(opts.melee_for_completion) or 0
     M.ability_for_completion = tonumber(opts.ability_for_completion) or 0
+    M.limit_pickup_pool = opts.limit_pickup_pool or false
+    M.limit_pickup_locations = opts.limit_pickup_locations or false
+
+    -- Per-category pickup subsets (used when limit_pickup_pool /
+    -- limit_pickup_locations is enabled).  Each subset is a list of item
+    -- names; convert to set form for fast lookup.
+    M.pickup_subsets = {
+        perk = {}, relic = {},
+        weapon_mod = {}, melee_mod = {}, ability_mod = {},
+    }
+    M._has_pickup_subsets = false
+    local subsets = (slot_data and slot_data.pickup_subsets)
+        or (opts and opts.pickup_subsets)
+    if type(subsets) == "table" then
+        local total = 0
+        for cat_key, names in pairs(subsets) do
+            local target = M.pickup_subsets[cat_key]
+            if target and type(names) == "table" then
+                for _, n in ipairs(names) do
+                    target[n] = true
+                    total = total + 1
+                end
+            end
+        end
+        if total > 0 then
+            M._has_pickup_subsets = true
+            log("Loaded pickup subsets (" .. total .. " items across categories)")
+        end
+    end
 
     -- Build pool lookup sets from slot_data lists
     M.pool_weapons = {}
@@ -109,15 +184,98 @@ function M.configure(slot_data)
     local pa = opts.pool_abilities or {}
     for _, name in ipairs(pa) do M.pool_abilities[name] = true end
 
+    -- The location allowlist is populated separately by APClient via
+    -- set_location_allowlist() once it has read the Connected packet's
+    -- missing_locations + checked_locations arrays.  See those functions.
+
     log("Configured: extra_ranked=" .. tostring(M.extra_ranked_island_checks)
         .. " cascade=" .. tostring(M.cascade_ranked_checks)
         .. " max_rank=" .. tostring(M.max_rank)
         .. " required_rank=" .. tostring(M.required_rank)
         .. " run_length=" .. tostring(M.run_length)
         .. " equip_mode=" .. tostring(M.equipment_check_mode)
+        .. " greed_mode=" .. tostring(M.greed_item_mode)
+        .. " pickup_checks=" .. tostring(M.pickup_checks)
+        .. " limit_pool=" .. tostring(M.limit_pickup_pool)
+        .. " limit_locs=" .. tostring(M.limit_pickup_locations)
         .. " pool_weapons=" .. tostring(#pw)
         .. " pool_melee=" .. tostring(#pm)
         .. " pool_abilities=" .. tostring(#pa))
+end
+
+--- Populate the valid-location allowlist from two arrays: the AP protocol's
+--- `missing_locations` (locations not yet checked for this slot) and
+--- `checked_locations` (locations already checked).  Their union is the
+--- complete authoritative set of location IDs the server knows about for
+--- this slot.  Called by APClient after the Connected packet arrives.
+---@param missing table|nil Array of location IDs (numeric)
+---@param checked table|nil Array of location IDs (numeric)
+function M.set_location_allowlist(missing, checked)
+    M.valid_location_ids = {}
+    M._has_location_allowlist = false
+    local count = 0
+    local function ingest(t)
+        if type(t) ~= "table" then return end
+        -- Try ipairs first (typical apclientpp delivery), then pairs as a
+        -- fallback in case the table comes back with non-sequential keys.
+        for _, lid in ipairs(t) do
+            local nid = tonumber(lid)
+            if nid and not M.valid_location_ids[nid] then
+                M.valid_location_ids[nid] = true
+                count = count + 1
+            end
+        end
+        for _, lid in pairs(t) do
+            local nid = tonumber(lid)
+            if nid and not M.valid_location_ids[nid] then
+                M.valid_location_ids[nid] = true
+                count = count + 1
+            end
+        end
+    end
+    ingest(missing)
+    ingest(checked)
+    if count > 0 then
+        M._has_location_allowlist = true
+        log("Loaded location allowlist (" .. count .. " valid IDs from "
+            .. "missing_locations + checked_locations)")
+    else
+        log("WARN: Connected packet had no missing/checked locations — "
+            .. "running without an allowlist; the server may reject some checks")
+    end
+end
+
+--- Check whether a location ID is valid for this slot — i.e. the server
+--- knows about a location with that ID.  Returns true if no allowlist was
+--- populated yet (fail-open) so this is safe to call before slot_connected.
+function M.is_valid_location_id(location_id)
+    if not M._has_location_allowlist then return true end
+    return M.valid_location_ids[tonumber(location_id)] == true
+end
+
+--- Check whether a pickup item's location is excluded by current options
+--- (greed_item_mode == skip, limit_pickup_locations subset).  Returns true
+--- if we should NOT send a check for this pickup.
+---@param kind string "perk" | "relic" | "weapon_mod" | "melee_mod" | "ability_mod"
+---@param item_name string Display name of the picked-up item
+function M.is_pickup_location_excluded(kind, item_name)
+    if not item_name or not kind then return false end
+    -- pickup_checks disabled → no pickup locations exist at all
+    if not M.pickup_checks then return true end
+    -- Greed items excluded when greed_item_mode == skip (2)
+    -- Apworld _should_include_location only excludes for perks/relics/
+    -- melee_mods (matches GREED_ITEM_NAMES coverage).
+    if M.greed_item_mode == 2
+            and (kind == "perk" or kind == "relic" or kind == "melee_mod")
+            and M.GREED_ITEM_NAMES[item_name] then
+        return true
+    end
+    -- limit_pickup_locations: only items in the chosen subset have locations
+    if M.limit_pickup_locations and M._has_pickup_subsets then
+        local subset = M.pickup_subsets[kind]
+        if subset and not subset[item_name] then return true end
+    end
+    return false
 end
 
 --- Check if a weapon name is in the randomized pool.
@@ -465,9 +623,24 @@ function M.equipment_name(equip_kind, full_name)
     return key
 end
 
--- Expose name lists for other modules (e.g., pre-allowing non-pool equipment)
+-- Expose name lists for other modules (e.g., pre-allowing non-pool equipment,
+-- or pre-allowing items not in a pickup subset).
 M.weapon_names = weapon_names
 M.melee_names = melee_names
 M.ability_names = ability_names
+M.perk_names = perk_names
+M.relic_names = relic_names
+M.weapon_mod_names = weapon_mod_names
+M.melee_mod_names = melee_mod_names
+M.ability_mod_names = ability_mod_names
+
+-- Map kind string -> name list (handy for iteration).
+M.PICKUP_NAMES_BY_KIND = {
+    perk        = perk_names,
+    relic       = relic_names,
+    weapon_mod  = weapon_mod_names,
+    melee_mod   = melee_mod_names,
+    ability_mod = ability_mod_names,
+}
 
 return M

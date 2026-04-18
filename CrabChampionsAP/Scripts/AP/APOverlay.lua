@@ -602,24 +602,56 @@ end
 -- ============================================================================
 
 --- Update the equipment progress checklist and victory summary.
+--- For each pool item, shows one of three states:
+---   [check] - completed: final-island run done with this equipment at the required rank
+---   [+]     - received as an AP item but not yet completed
+---   [-]     - not yet received
 ---@param LocationData table LocationData module
 ---@param ItemApply table ItemApply module (for .unlocked)
 ---@param ItemData table ItemData module (for .get_da / .CATEGORY)
-function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData)
+---@param APClient table|nil APClient module (for is_location_checked).  If nil,
+---       completion check marks are skipped and only [+]/[-] are shown.
+function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, APClient)
     if not is_alive() then return end
     if not LocationData or not ItemApply or not ItemData then return end
 
     local CAT = ItemData.CATEGORY
+    local run_length = LocationData.run_length or 28
+    local req_rank = LocationData.required_rank or 0
+
+    --- Build a per-item line: figure out the (received, completed) state and
+    --- emit "  [marker] Name".  loc_id_fn converts a name to the relevant
+    --- equipment-run location id.
+    local function build_line(name, da_full_name, loc_id_fn)
+        local got = da_full_name and ItemApply.unlocked[da_full_name]
+        local completed = false
+        if APClient and loc_id_fn then
+            local lid = loc_id_fn(run_length, name, req_rank)
+            if lid and APClient.is_location_checked then
+                completed = APClient:is_location_checked(lid) == true
+            end
+        end
+        local marker
+        if completed then
+            marker = "[\xE2\x9C\x93]"  -- ✓ U+2713 CHECK MARK (UTF-8)
+        elseif got then
+            marker = "[+]"
+        else
+            marker = "[-]"
+        end
+        return "  " .. marker .. " " .. name, got, completed
+    end
 
     -- Build weapons checklist
     local pw = LocationData.pool_weapons or {}
-    local w_received = 0
+    local w_received, w_completed = 0, 0
     local w_lines = {}
     for wname, _ in pairs(pw) do
         local fn = ItemData.get_da(CAT.WEAPON, wname)
-        local got = fn and ItemApply.unlocked[fn]
+        local line, got, done = build_line(wname, fn, LocationData.weapon_run_location_id_by_name)
         if got then w_received = w_received + 1 end
-        table.insert(w_lines, (got and "  [+] " or "  [-] ") .. wname)
+        if done then w_completed = w_completed + 1 end
+        table.insert(w_lines, line)
     end
     table.sort(w_lines)
 
@@ -629,21 +661,23 @@ function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData)
 
     if w_total > 0 then
         set_text(overlay.equip_weapons_text,
-            "Weapons (" .. w_received .. "/" .. w_total .. " received, " .. w_needed .. " needed):\n" ..
-            table.concat(w_lines, "\n"))
+            "Weapons (" .. w_received .. "/" .. w_total .. " received, "
+            .. w_completed .. "/" .. w_needed .. " completed):\n"
+            .. table.concat(w_lines, "\n"))
     else
         set_text(overlay.equip_weapons_text, "Weapons: (none in pool)")
     end
 
     -- Build melee checklist
     local pm = LocationData.pool_melee or {}
-    local m_received = 0
+    local m_received, m_completed = 0, 0
     local m_lines = {}
     for mname, _ in pairs(pm) do
         local fn = ItemData.get_da(CAT.MELEE, mname)
-        local got = fn and ItemApply.unlocked[fn]
+        local line, got, done = build_line(mname, fn, LocationData.melee_run_location_id_by_name)
         if got then m_received = m_received + 1 end
-        table.insert(m_lines, (got and "  [+] " or "  [-] ") .. mname)
+        if done then m_completed = m_completed + 1 end
+        table.insert(m_lines, line)
     end
     table.sort(m_lines)
 
@@ -653,21 +687,23 @@ function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData)
 
     if m_total > 0 then
         set_text(overlay.equip_melee_text,
-            "Melee (" .. m_received .. "/" .. m_total .. " received, " .. m_needed .. " needed):\n" ..
-            table.concat(m_lines, "\n"))
+            "Melee (" .. m_received .. "/" .. m_total .. " received, "
+            .. m_completed .. "/" .. m_needed .. " completed):\n"
+            .. table.concat(m_lines, "\n"))
     else
         set_text(overlay.equip_melee_text, "")
     end
 
     -- Build abilities checklist
     local pa = LocationData.pool_abilities or {}
-    local a_received = 0
+    local a_received, a_completed = 0, 0
     local a_lines = {}
     for aname, _ in pairs(pa) do
         local fn = ItemData.get_da(CAT.ABILITY, aname)
-        local got = fn and ItemApply.unlocked[fn]
+        local line, got, done = build_line(aname, fn, LocationData.ability_run_location_id_by_name)
         if got then a_received = a_received + 1 end
-        table.insert(a_lines, (got and "  [+] " or "  [-] ") .. aname)
+        if done then a_completed = a_completed + 1 end
+        table.insert(a_lines, line)
     end
     table.sort(a_lines)
 
@@ -677,8 +713,9 @@ function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData)
 
     if a_total > 0 then
         set_text(overlay.equip_abilities_text,
-            "Abilities (" .. a_received .. "/" .. a_total .. " received, " .. a_needed .. " needed):\n" ..
-            table.concat(a_lines, "\n"))
+            "Abilities (" .. a_received .. "/" .. a_total .. " received, "
+            .. a_completed .. "/" .. a_needed .. " completed):\n"
+            .. table.concat(a_lines, "\n"))
     else
         set_text(overlay.equip_abilities_text, "")
     end
@@ -687,7 +724,8 @@ function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData)
     local rank_name = LocationData.RANK_NAMES
         and LocationData.RANK_NAMES[LocationData.required_rank + 1] or "?"
     set_text(overlay.victory_summary_text,
-        "Goal: " .. w_needed .. " weapons, " .. m_needed .. " melee, " .. a_needed .. " abilities on " .. rank_name)
+        "Goal: " .. w_needed .. " weapons, " .. m_needed .. " melee, "
+        .. a_needed .. " abilities on " .. rank_name)
 end
 
 -- ============================================================================

@@ -3,14 +3,23 @@ from dataclasses import dataclass
 from Options import Toggle, DefaultOnToggle, Range, Choice, ItemDict, DeathLink, PerGameCommonOptions
 
 
+# ──────────────────────────────────────────────────────────────────────────
 # Victory conditions
+# ──────────────────────────────────────────────────────────────────────────
 
 class RequiredRank(Choice):
-    """The minimum rank that must be completed for victory.
-    Rank is determined by difficulty modifier points:
-    Bronze(0), Silver(1), Gold(2-3), Sapphire(4-5), Emerald(6-7),
-    Ruby(8-9), Diamond(10-15), Prismatic(16+).
-    Run-completion locations are generated for all ranks up to this level."""
+    """The minimum rank you must complete to win.  A run is "completed at
+    Rank X" when you finish the final island while accumulating at least
+    Rank X's worth of difficulty modifier points.
+
+    Difficulty thresholds:
+      Bronze (0), Silver (1), Gold (2-3), Sapphire (4-5), Emerald (6-7),
+      Ruby (8-9), Diamond (10-15), Prismatic (16+)
+
+    Higher ranks demand stacking more modifier cards before each island, so
+    higher requirements mean tougher runs.  Run-completion locations are
+    generated for this rank by default; see Extra Rank Checks to also
+    generate locations for higher ranks."""
     display_name = "Required Rank"
     option_bronze = 0
     option_silver = 1
@@ -24,9 +33,13 @@ class RequiredRank(Choice):
 
 
 class RunLength(Choice):
-    """How many islands must be completed for a run to count as finished.
-    The game loops islands in cycles of 28. A normal run is 28 islands (1 cycle),
-    a full run is 56 islands (2 cycles)."""
+    """How many islands a run must complete to count as finished.  The game
+    cycles biomes every 28 islands, so:
+      short (28): one full biome cycle
+      full  (56): two full biome cycles
+
+    All island/equipment/rank locations scale with this value — a Full run
+    has roughly twice the location count of a Short run."""
     display_name = "Run Length"
     option_short = 28
     option_full = 56
@@ -34,7 +47,12 @@ class RunLength(Choice):
 
 
 class WeaponsForCompletion(Range):
-    """Number of different weapons the player must complete a run with for victory."""
+    """How many DIFFERENT weapons must be used to complete victory-rank runs
+    before you can win.  E.g. with this set to 5, you'll need to finish the
+    final island five separate times, each with a different weapon, all at
+    Required Rank or higher.
+
+    Capped at the total number of weapons in the game (20)."""
     display_name = "Weapons for Completion"
     range_start = 1
     range_end = 20
@@ -42,8 +60,12 @@ class WeaponsForCompletion(Range):
 
 
 class MeleeForCompletion(Range):
-    """Number of different melee weapons the player must complete a run with for victory.
-    Set to 0 to disable melee randomization and melee completion locations entirely."""
+    """How many DIFFERENT melee weapons must be used to complete victory-rank
+    runs before you can win.  Works the same as Weapons for Completion but
+    for melee.
+
+    Set to 0 to disable melee entirely — no melee items in the pool, no
+    melee location checks, and no melee requirement for victory."""
     display_name = "Melee for Completion"
     range_start = 0
     range_end = 5
@@ -51,25 +73,35 @@ class MeleeForCompletion(Range):
 
 
 class AbilityForCompletion(Range):
-    """Number of different abilities the player must complete a run with for victory.
-    Set to 0 to disable ability randomization and ability completion locations entirely."""
+    """How many DIFFERENT abilities must be used to complete victory-rank
+    runs before you can win.  Works the same as Weapons for Completion but
+    for abilities.
+
+    Set to 0 to disable abilities entirely — no ability items in the pool,
+    no ability location checks, and no ability requirement for victory."""
     display_name = "Abilities for Completion"
     range_start = 0
     range_end = 7
     default = 3
 
 
+# ──────────────────────────────────────────────────────────────────────────
 # Item pool / equipment
+# ──────────────────────────────────────────────────────────────────────────
 
 class WeaponsInPool(Range):
-    """How many weapons are randomly selected and placed into the AP item pool.
-    The player must find these weapons as AP items before they can use them.
-    Each weapon in the pool generates its own run-completion location check,
-    even if Weapons for Completion is lower than this value.
-    For example, with 5 in pool and 3 for completion, all 5 weapons create
-    location checks but only 3 must be completed for victory.
-    Must be >= Weapons for Completion. Capped at 19 so the player always has
-    at least one weapon available from the start."""
+    """How many weapons are randomly selected from the 20 available to be
+    AP items.  Pool weapons must be received via Archipelago before you can
+    use them.  Non-pool weapons are always available from the start.
+
+    Each pool weapon also generates its own per-island run-completion
+    location, so a larger pool means more checks.
+
+    Example: pool=5, for_completion=3 means 5 weapons are AP items, all 5
+    have location checks, but only 3 distinct ones must be used to win.
+
+    Must be >= Weapons for Completion (auto-clamped).  Capped at 19 so you
+    always start with at least one usable weapon."""
     display_name = "Weapons in Pool"
     range_start = 1
     range_end = 19
@@ -77,13 +109,12 @@ class WeaponsInPool(Range):
 
 
 class MeleeInPool(Range):
-    """How many melee weapons are randomly selected and placed into the AP item pool.
-    Each melee weapon in the pool generates its own run-completion location check,
-    even if Melee for Completion is lower than this value.
-    For example, with 3 in pool and 1 for completion, all 3 melee weapons create
-    location checks but only 1 must be completed for victory.
-    Must be >= Melee for Completion. Forced to 0 when Melee for Completion is 0.
-    Capped at 4 so the player always has at least one melee weapon available."""
+    """How many melee weapons (out of 5) are randomly selected to be AP
+    items.  See Weapons in Pool for the full mechanic.
+
+    Must be >= Melee for Completion (auto-clamped).  Forced to 0 when
+    Melee for Completion is 0.  Capped at 4 so you always start with at
+    least one melee available."""
     display_name = "Melee in Pool"
     range_start = 0
     range_end = 4
@@ -91,13 +122,12 @@ class MeleeInPool(Range):
 
 
 class AbilitiesInPool(Range):
-    """How many abilities are randomly selected and placed into the AP item pool.
-    Each ability in the pool generates its own run-completion location check,
-    even if Abilities for Completion is lower than this value.
-    For example, with 4 in pool and 2 for completion, all 4 abilities create
-    location checks but only 2 must be completed for victory.
-    Must be >= Abilities for Completion. Forced to 0 when Abilities for Completion is 0.
-    Capped at 6 so the player always has at least one ability available."""
+    """How many abilities (out of 7) are randomly selected to be AP items.
+    See Weapons in Pool for the full mechanic.
+
+    Must be >= Abilities for Completion (auto-clamped).  Forced to 0 when
+    Abilities for Completion is 0.  Capped at 6 so you always start with
+    at least one ability available."""
     display_name = "Abilities in Pool"
     range_start = 0
     range_end = 6
@@ -105,11 +135,13 @@ class AbilitiesInPool(Range):
 
 
 class StartingWeapons(Range):
-    """Number of pool weapons the player starts with already unlocked.
-    These weapons are randomly selected from the pool and given at the start,
-    so the player can begin working on equipment run checks immediately.
-    Must be less than Weapons in Pool (at least one weapon must be found).
-    Set to 0 to start with no weapons unlocked."""
+    """How many of your pool weapons you begin the game already holding.
+    These are randomly selected from Weapons in Pool and pre-collected, so
+    you can start working on equipment-run checks immediately without
+    waiting to receive a weapon from another player.
+
+    Must be < Weapons in Pool (at least one weapon must still be findable
+    via AP).  Set to 0 to start with no pool weapons unlocked."""
     display_name = "Starting Weapons"
     range_start = 0
     range_end = 19
@@ -117,12 +149,21 @@ class StartingWeapons(Range):
 
 
 class EquipmentCheckMode(Choice):
-    """Controls how non-pool equipment run locations behave.
-    Pool equipment (randomized into AP items) always has regular locations.
-    This option controls non-pool equipment (available from the start):
-    Regular: non-pool equipment run checks are normal locations.
-    Filler Only: non-pool equipment run checks exist but only hold filler items.
-    Disabled: non-pool equipment run locations are not created at all."""
+    """Controls whether non-pool weapons/melee/abilities have their own
+    run-completion location checks.  (Pool equipment ALWAYS has checks —
+    this option is only about non-pool items, which are available from
+    the start.)
+
+    regular:
+        Non-pool equipment runs are normal location checks that can hold
+        any item, including progression.  Maximum locations.
+    filler_only:
+        Non-pool equipment runs exist as locations but are marked excluded
+        — they only ever hold filler.  Adds checks for variety without
+        requiring you to use every weapon for progression.
+    disabled:
+        Non-pool equipment run locations are not generated at all.  This
+        is the default due to how many extra locations it creates."""
     display_name = "Equipment Check Mode"
     option_regular = 0
     option_filler_only = 1
@@ -130,12 +171,17 @@ class EquipmentCheckMode(Choice):
     default = 2
 
 
+# ──────────────────────────────────────────────────────────────────────────
 # Rank modifiers
+# ──────────────────────────────────────────────────────────────────────────
 
 class MaxRank(Choice):
-    """Maximum rank that generates location checks.
-    Ranks above this produce no locations. Must be >= Required Rank.
-    Locations between Required Rank and Max Rank are optional extras."""
+    """The highest rank for which any location checks are generated.  Must
+    be >= Required Rank (auto-clamped).
+
+    Has no effect unless Extra Rank Checks is set to something other than
+    "none" — without extra rank checks, only Required Rank generates
+    locations and Max Rank is ignored."""
     display_name = "Max Rank"
     option_bronze = 0
     option_silver = 1
@@ -148,74 +194,133 @@ class MaxRank(Choice):
     default = 3
 
 
-class ExtraRankedIslandChecks(Toggle):
-    """When enabled, island completions and equipment runs are tracked per rank
-    for ALL ranks up to Max Rank, not just the Required Rank.
-    For example, 'Complete Island 10 with Auto Rifle on Silver' becomes a check
-    even if Required Rank is Bronze. Greatly increases location count."""
-    display_name = "Extra Ranked Island Checks"
+class ExtraRankChecks(Choice):
+    """Controls whether ranks ABOVE Required Rank generate additional
+    location checks.  Replaces the legacy Extra Ranked Island Checks +
+    Non-Progression Above Required pair with one option that captures
+    the meaningful combinations.
 
+    none:
+        Only Required Rank produces ranked checks.  Higher ranks are
+        ignored and produce no additional locations.  Smallest pool.
+    progression:
+        Ranks above Required (up to Max Rank) add new ranked checks AND
+        those locations can hold progression items.  Greatly increases
+        location count and turns higher difficulty into real progression.
+    filler_only:
+        Ranks above Required add new ranked checks but those locations
+        are marked excluded — they only hold filler.  Use this to add
+        more checks for variety/filler without forcing yourself to grind
+        higher ranks for critical items.
 
-class NonProgressionAboveRequired(Toggle):
-    """When enabled, items placed at locations for ranks above the Required Rank
-    (but at or below Max Rank) are classified as useful/filler only, never progression.
-    This prevents critical items from being locked behind higher difficulty ranks.
-    Only has an effect when Extra Ranked Island Checks is enabled."""
-    display_name = "Non-Progression Above Required Rank"
-
-
-class CascadeRankedChecks(Toggle):
-    """When enabled, completing a check at a higher rank also completes
-    the equivalent check at all lower ranks. For example, completing
-    Island 5 on Gold also checks Island 5 on Silver and Bronze."""
-    display_name = "Cascade Ranked Checks"
-
-
-class PickupChecks(DefaultOnToggle):
-    """When enabled, picking up perks, relics, weapon mods, melee mods, and ability mods
-    for the first time generates location checks (e.g., 'Perk: Driller', 'Relic: Time Ring').
-    This adds up to 305 additional locations. When disabled, these pickup locations are
-    not created and the item pool is smaller, focusing only on island completions,
-    equipment runs, and rank runs."""
-    display_name = "Pickup Checks"
-
-
-# Filler / misc
-
-class CrystalCachePercentage(Range):
-    """Percentage of extra item pool slots filled with Crystal Cache (grants crystals)
-    instead of additional perk/mod stacks. Higher values mean fewer duplicate
-    perks/mods and more crystal rewards. At 0%, all extra slots are perks/mods.
-    At 100%, all extra slots are Crystal Cache."""
-    display_name = "Crystal Cache Percentage"
-    range_start = 0
-    range_end = 100
-    default = 75
-
-
-class GreedItemMode(Choice):
-    """Controls how Greed items (perks/mods/relics with the Greed modifier) are handled.
-    Greed items cannot be dropped once picked up, making them a permanent commitment.
-    Auto: Greed items are added directly to your inventory when received from AP.
-    Drop: Greed items are spawned on the floor in the lobby for you to pick up manually.
-    Skip: Greed items are not granted at all — you find them naturally in-game."""
-    display_name = "Greed Item Mode"
-    option_auto = 0
-    option_drop = 1
-    option_skip = 2
+    Has no effect when Required Rank == Max Rank (no extra ranks exist)."""
+    display_name = "Extra Rank Checks"
+    option_none = 0
+    option_progression = 1
+    option_filler_only = 2
     default = 0
 
 
+class CascadeRankedChecks(Toggle):
+    """When enabled, completing an in-game check at a higher rank also
+    triggers the equivalent check at every lower rank.  E.g. completing
+    "Island 5 with Auto Rifle on Gold" also sends checks for "Island 5
+    with Auto Rifle on Silver" and "...on Bronze".
+
+    Convenient when playing at high ranks — you don't have to redo runs
+    at lower ranks for the easier checks.  Has no effect on generation
+    or fill, only on what the in-game client sends as you play."""
+    display_name = "Cascade Ranked Checks"
+
+
+class MinimizeRunChecks(Toggle):
+    """When enabled, drops generalized run-completion checks that are made
+    redundant by the most-specific equipment-and-rank check.  Pool weapons
+    always have these locations, so the redundant ones are always covered:
+
+      - "Complete Island X on Rank" checks are removed
+      - "Complete Island X with Weapon" checks are removed
+
+    The most specific "Complete Island X with Weapon on Rank" check is
+    always kept, since completing it implies completing all the dropped
+    variants.  Plain "Complete Island X" (unranked) is also kept.
+
+    Has no effect only in the unusual case where there are no equipment
+    runs at all (which currently can't happen since Weapons in Pool is
+    forced to >= 1)."""
+    display_name = "Minimize Run Checks"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Pickup checks
+# ──────────────────────────────────────────────────────────────────────────
+
+class PickupChecks(DefaultOnToggle):
+    """When enabled, picking up perks, relics, weapon mods, melee mods,
+    or ability mods for the FIRST TIME (per item, per multiworld) sends
+    a location check, e.g. "Perk: Driller" or "Relic: Time Ring".
+
+    Adds up to 305 location checks.  When disabled, these pickup
+    locations don't exist and the item pool focuses on island/equipment/
+    rank-run checks only.
+
+    See also Limit Pickup Pool / Limit Pickup Locations to scale this
+    down to per-run inventory caps."""
+    display_name = "Pickup Checks"
+
+
+class LimitPickupPool(Toggle):
+    """When enabled, the AP item pool is limited to a randomly-selected
+    subset of pickups matching your per-run inventory caps:
+      24 perks, 24 weapon mods, 12 ability mods, 12 melee mods, 10 relics
+
+    Items NOT in the chosen subset stay in-game and can be picked up
+    normally during runs, but are never sent or received via AP.
+
+    Tag-group coverage is enforced — at least one provider per pickup-tag
+    group is guaranteed in the subset, so tag-gated locations (like
+    "Relic: Time Ring") remain reachable.
+
+    Pairs naturally with Limit Pickup Locations.  Either option can be
+    enabled independently; both share the same chosen subset."""
+    display_name = "Limit Pickup Pool"
+
+
+class LimitPickupLocations(Toggle):
+    """When enabled, pickup location checks are only generated for items
+    in the randomly-selected subset (see Limit Pickup Pool for the
+    subset sizes).  Items not in the subset still appear in-game but
+    produce no location check when picked up.
+
+    Pairs naturally with Limit Pickup Pool.  Either option can be
+    enabled independently; both share the same chosen subset when both
+    are on."""
+    display_name = "Limit Pickup Locations"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Progressive inventory slots
+# ──────────────────────────────────────────────────────────────────────────
+
 class ProgressiveSlots(Toggle):
-    """When enabled, the player starts with fewer inventory slots and receives
-    additional slots as AP items. Slot purchases with crystals are blocked.
-    When disabled, all slots are available from the start as normal."""
+    """When enabled, you start with fewer inventory slots than the game
+    normally allows, and receive additional slots as AP items.  The
+    in-game crystal-purchase upgrade for slots is blocked.
+
+    When disabled, you have all slots available from the start as
+    normal.
+
+    See Starting Perk/Weapon Mod/Ability Mod/Melee Mod Slots to control
+    how many slots you start with."""
     display_name = "Progressive Inventory Slots"
 
 
 class StartingPerkSlots(Range):
-    """Number of perk slots the player starts with when Progressive Inventory Slots is enabled.
-    The remaining slots (up to 24) are sent as 'Perk Slot' items in the AP pool."""
+    """When Progressive Inventory Slots is enabled, how many perk slots
+    you start with.  The remaining (24 - this value) slots are sent as
+    "Progressive Perk Slot" items in the AP pool.
+
+    Has no effect when Progressive Inventory Slots is disabled."""
     display_name = "Starting Perk Slots"
     range_start = 1
     range_end = 24
@@ -223,8 +328,11 @@ class StartingPerkSlots(Range):
 
 
 class StartingWeaponModSlots(Range):
-    """Number of weapon mod slots the player starts with when Progressive Inventory Slots is enabled.
-    The remaining slots (up to 24) are sent as 'Weapon Mod Slot' items in the AP pool."""
+    """When Progressive Inventory Slots is enabled, how many weapon mod
+    slots you start with.  The remaining (24 - this value) slots are
+    sent as "Progressive Weapon Mod Slot" items in the AP pool.
+
+    Has no effect when Progressive Inventory Slots is disabled."""
     display_name = "Starting Weapon Mod Slots"
     range_start = 1
     range_end = 24
@@ -232,8 +340,11 @@ class StartingWeaponModSlots(Range):
 
 
 class StartingAbilityModSlots(Range):
-    """Number of ability mod slots the player starts with when Progressive Inventory Slots is enabled.
-    The remaining slots (up to 12) are sent as 'Ability Mod Slot' items in the AP pool."""
+    """When Progressive Inventory Slots is enabled, how many ability mod
+    slots you start with.  The remaining (12 - this value) slots are
+    sent as "Progressive Ability Mod Slot" items in the AP pool.
+
+    Has no effect when Progressive Inventory Slots is disabled."""
     display_name = "Starting Ability Mod Slots"
     range_start = 1
     range_end = 12
@@ -241,19 +352,77 @@ class StartingAbilityModSlots(Range):
 
 
 class StartingMeleeModSlots(Range):
-    """Number of melee mod slots the player starts with when Progressive Inventory Slots is enabled.
-    The remaining slots (up to 12) are sent as 'Melee Mod Slot' items in the AP pool."""
+    """When Progressive Inventory Slots is enabled, how many melee mod
+    slots you start with.  The remaining (12 - this value) slots are
+    sent as "Progressive Melee Mod Slot" items in the AP pool.
+
+    Has no effect when Progressive Inventory Slots is disabled."""
     display_name = "Starting Melee Mod Slots"
     range_start = 1
     range_end = 12
     default = 4
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Filler / misc
+# ──────────────────────────────────────────────────────────────────────────
+
+class CrystalCachePercentage(Range):
+    """Percentage of "extra" item pool slots filled with Crystal Cache
+    (in-game currency rewards) instead of duplicate perk/mod stacks.
+
+    The pool is built by first adding required items (pool equipment,
+    one of each pickup, etc.).  Whatever slots remain are split between
+    crystal filler and extra stackable copies based on this percentage:
+      0%   = all extras are duplicate perks/mods (more variety in
+             received items)
+      75%  = default; balanced mix
+      100% = all extras are Crystal Cache (less spam of duplicates)
+
+    Crystal Cache items grant in-game currency for shops/upgrades."""
+    display_name = "Crystal Cache Percentage"
+    range_start = 0
+    range_end = 100
+    default = 75
+
+
+class GreedItemMode(Choice):
+    """How to handle Greed items — perks/relics/mods that can't be dropped
+    once picked up, making them a permanent commitment for the run.
+
+    auto:
+        Greed items received from AP go directly to your inventory the
+        next time you start a run, even though you can't drop them.
+    drop:
+        Greed items received from AP spawn on the lobby floor for you
+        to pick up only when you're ready to commit.
+    skip:
+        Greed items are never granted via AP at all.  You can only
+        find them naturally in-game.  Their pickup locations are also
+        excluded from generation."""
+    display_name = "Greed Item Mode"
+    option_auto = 0
+    option_drop = 1
+    option_skip = 2
+    default = 2
+
 
 class GuaranteedItemsOption(ItemDict):
-    """Guarantees that the specified items will be in the item pool"""
+    """Forces specific items into the item pool regardless of other
+    settings.  Format is a YAML mapping of item names to copy counts:
+
+      guaranteed_items:
+        Auto Rifle: 1
+        Time Bolt: 2
+
+    Useful for ensuring favorite items end up randomized.  Item names
+    must match exactly (case-sensitive)."""
     display_name = "Guaranteed Items"
 
+
+# ──────────────────────────────────────────────────────────────────────────
+# Dataclass — option order controls display order in the WebUI
+# ──────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class CrabChampsOption(PerGameCommonOptions):
@@ -271,11 +440,14 @@ class CrabChampsOption(PerGameCommonOptions):
     equipment_check_mode: EquipmentCheckMode
     # Rank modifiers
     max_rank: MaxRank
-    extra_ranked_island_checks: ExtraRankedIslandChecks
-    non_progression_above_required: NonProgressionAboveRequired
+    extra_rank_checks: ExtraRankChecks
     cascade_ranked_checks: CascadeRankedChecks
+    minimize_run_checks: MinimizeRunChecks
+    # Pickup checks
     pickup_checks: PickupChecks
-    # Progressive slots
+    limit_pickup_pool: LimitPickupPool
+    limit_pickup_locations: LimitPickupLocations
+    # Progressive inventory slots
     progressive_slots: ProgressiveSlots
     starting_perk_slots: StartingPerkSlots
     starting_weapon_mod_slots: StartingWeaponModSlots
