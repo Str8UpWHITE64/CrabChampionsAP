@@ -123,6 +123,16 @@ function APClientWrapper.new(uuid, game_name, server)
         safe_call("ConnectSlot", slot_name, password, items_handling, tags, version)
     end
 
+    --- Update items_handling and/or tags on an existing connection without
+    --- re-authenticating.  Either argument may be nil to leave that field
+    --- unchanged.  Returns the native call's result.
+    function wrapped:ConnectUpdate(items_handling, tags)
+        print(string.format("%s ConnectUpdate(items_handling=%s, tags=%s)",
+            LOG_PREFIX, tostring(items_handling),
+            tags and ("[" .. table.concat(tags, ",") .. "]") or "nil"))
+        return safe_call("ConnectUpdate", items_handling, tags)
+    end
+
     function wrapped:LocationChecks(locations)
         safe_call("LocationChecks", locations)
     end
@@ -166,6 +176,24 @@ function APClientWrapper.new(uuid, game_name, server)
 
     function wrapped:get_player_number()
         return safe_call("get_player_number")
+    end
+
+    --- Access the server-provided list of locations that have not yet been
+    --- checked for our slot.  apclientpp exposes this as a TABLE PROPERTY on
+    --- the userdata (not a method call), kept up to date as Connected and
+    --- RoomUpdate packets arrive.  Returns nil if not yet populated.
+    function wrapped:get_missing_locations()
+        local ok, result = pcall(function() return client.missing_locations end)
+        if ok then return result end
+        return nil
+    end
+
+    --- Access the server-provided list of locations that have already been
+    --- checked for our slot.  See get_missing_locations() for details.
+    function wrapped:get_checked_locations()
+        local ok, result = pcall(function() return client.checked_locations end)
+        if ok then return result end
+        return nil
     end
 
     -- ---------------------------------------------------------------

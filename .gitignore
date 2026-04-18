@@ -3,3 +3,4 @@
 /dumps/
 pickup_tags.txt
 *.zip
+__pycache__/

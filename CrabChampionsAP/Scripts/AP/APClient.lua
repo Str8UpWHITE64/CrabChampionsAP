@@ -18,7 +18,9 @@ local Client = {
     password = "",
     game = "Crab Champions",
     uuid = "",
-    tags = { "AP", "DeathLink" },
+    -- Initial tags: just "AP".  DeathLink is added via ConnectUpdate after
+    -- slot_connected if the slot's death_link option is enabled.
+    tags = { "AP" },
     items_handling = 7,
     version = { 0, 5, 1 },
 
@@ -92,7 +94,8 @@ function Client:init(config_path)
     self.game = config.game or self.game
     self.uuid = config.uuid or self.uuid
     self.items_handling = config.items_handling or self.items_handling
-    -- tags are hardcoded (always include DeathLink) — not loaded from config
+    -- Tags start as { "AP" }.  DeathLink is added via ConnectUpdate in the
+    -- slot_connected handler when the slot's death_link option is on.
 
     if self.slot == "" then
         log("WARNING: No slot name configured in ap_config.json")
@@ -186,6 +189,9 @@ function Client:_register_handlers()
     c:set_socket_disconnected_handler(function()
         self._connected = false
         self._slot_connected = false
+        -- Reset tags so the next connection starts fresh; DeathLink is
+        -- re-added by main.lua's slot_connected handler when appropriate.
+        self.tags = { "AP" }
         log("Socket disconnected")
         if self.on_disconnected then pcall(self.on_disconnected) end
     end)
@@ -205,6 +211,17 @@ function Client:_register_handlers()
         -- Cache our slot number for quick access
         pcall(function() self.slot_number = c:get_player_number() or -1 end)
         log("Slot connected successfully (slot #" .. tostring(self.slot_number) .. ")")
+
+        -- Build the location allowlist from the AP protocol's authoritative
+        -- arrays in the Connected packet.  Their union is the complete set
+        -- of location IDs the server knows about for our slot — no need for
+        -- the apworld to bundle locationsId in slot_data.
+        local LocationData = require("AP/LocationData")
+        if LocationData and LocationData.set_location_allowlist then
+            local missing = c:get_missing_locations() or {}
+            local checked = c:get_checked_locations() or {}
+            LocationData.set_location_allowlist(missing, checked)
+        end
 
         if self.on_slot_connected then
             local ok, err = pcall(self.on_slot_connected, self.slot_data)
@@ -504,14 +521,14 @@ function Client:_process_outgoing()
         end
     end
 
-    -- Tag update (re-call ConnectSlot with new tags without disconnecting)
+    -- Tag update via ConnectUpdate (no re-authentication required)
     if self._outgoing_tag_update then
         self._outgoing_tag_update = nil
         local ok, err = pcall(function()
-            self._client:ConnectSlot(self.slot, self.password, self.items_handling, self.tags, self.version)
+            self._client:ConnectUpdate(nil, self.tags)
         end)
         if ok then
-            log("Updated tags: " .. table.concat(self.tags, ", "))
+            log("Updated tags via ConnectUpdate: " .. table.concat(self.tags, ", "))
         else
             log("Tag update error: " .. tostring(err))
         end
@@ -581,6 +598,8 @@ function Client:_execute_command(cmd, args)
         self._client = nil
         self._connected = false
         self._slot_connected = false
+        -- Reset tags so the next connection starts without any stale flags
+        self.tags = { "AP" }
         self.enabled = false
         log("Disconnected by user")
         if self.on_disconnected then pcall(self.on_disconnected) end
@@ -631,11 +650,23 @@ end
 -- ---------------------------------------------------------------
 
 --- Queue a location check by numeric ID.
+--- IDs not in the server's allowlist (built from the Connected packet's
+--- missing_locations + checked_locations arrays) are silently dropped —
+--- sending one would otherwise crash the server with a KeyError.
 ---@param location_id number
 function Client:send_check(location_id)
     location_id = tonumber(location_id)
     if not location_id then return end
     if self._checked[location_id] then return end
+    -- Validate against the server-provided allowlist.  Lazy-load the module
+    -- to avoid a circular require with LocationData.
+    local LocationData = require("AP/LocationData")
+    if LocationData and LocationData.is_valid_location_id
+            and not LocationData.is_valid_location_id(location_id) then
+        log("Skipping check for unknown location id " .. tostring(location_id)
+            .. " (not in slot's location allowlist)")
+        return
+    end
     self._checked[location_id] = true
     self._outgoing_checks[#self._outgoing_checks + 1] = location_id
     -- Notify description system so it can update [CHECKED] live
@@ -653,13 +684,25 @@ function Client:send_checks(location_ids)
 end
 
 --- Queue a location scout request.
+--- IDs not in the server's allowlist are filtered out; sending one would
+--- crash the server with a KeyError just like with checks.
 ---@param location_ids table Array of numeric location IDs to scout
 function Client:send_scouts(location_ids)
+    local LocationData = require("AP/LocationData")
+    local skipped = 0
     for _, lid in ipairs(location_ids) do
         lid = tonumber(lid)
         if lid then
-            self._outgoing_scouts[#self._outgoing_scouts + 1] = lid
+            if LocationData and LocationData.is_valid_location_id
+                    and not LocationData.is_valid_location_id(lid) then
+                skipped = skipped + 1
+            else
+                self._outgoing_scouts[#self._outgoing_scouts + 1] = lid
+            end
         end
+    end
+    if skipped > 0 then
+        log("Filtered " .. skipped .. " scout id(s) not in slot's allowlist")
     end
 end
 
@@ -682,7 +725,8 @@ function Client:send_status(status)
 end
 
 --- Update connection tags (e.g., to add/remove DeathLink).
---- Re-calls ConnectSlot with updated tags without disconnecting.
+--- Sent on the next poll via ConnectUpdate, which preserves the current
+--- session — no disconnect/reauth required.
 ---@param new_tags table Array of tag strings
 function Client:update_tags(new_tags)
     self.tags = new_tags

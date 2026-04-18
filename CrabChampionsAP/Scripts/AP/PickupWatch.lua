@@ -337,6 +337,19 @@ function M.install(ap_client)
         end
 
         local display = LocationData.display_name(kind, full_name)
+
+        -- Skip pickups whose locations don't exist server-side (greed/skip
+        -- mode, limit_pickup_locations, etc.).  These are "natural"
+        -- pickups: the player keeps them in their inventory, and we never
+        -- send a check.  Sending a check for a location the server didn't
+        -- generate would crash the connection with a KeyError.
+        if LocationData.is_pickup_location_excluded
+                and LocationData.is_pickup_location_excluded(kind, display) then
+            log("Pickup not AP-tracked (kept in inventory): " .. display
+                .. " (kind=" .. tostring(kind) .. ")")
+            return
+        end
+
         log("Location check: " .. display .. " → " .. tostring(location_id))
 
         if client:is_location_checked(location_id) then

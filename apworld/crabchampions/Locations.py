@@ -321,9 +321,12 @@ for location_table in location_tables.values():
     location_dictionary.update({loc.name: loc for loc in location_table})
 
 
+_RANK_NAME_TO_INDEX = {rname: r for r, rname in enumerate(RANK_NAMES)}
+
+
 def rank_from_location_name(name: str) -> int:
     """Extract the rank index from a ranked location name, or -1 if unranked."""
-    for r, rname in enumerate(RANK_NAMES):
-        if name.endswith(f" on {rname}"):
-            return r
-    return -1
+    idx = name.rfind(" on ")
+    if idx == -1:
+        return -1
+    return _RANK_NAME_TO_INDEX.get(name[idx + 4:], -1)

@@ -136,28 +136,47 @@ Controls how **non-pool** equipment run locations behave. Equipment that is in t
 These options control how difficulty ranks interact with location checks. They are most impactful when you want checks at multiple rank tiers.
 
 #### `max_rank` (Default: Sapphire)
-The highest rank that generates location checks. Must be >= `required_rank`. Any rank above this produces no locations at all. The ranks between `required_rank` and `max_rank` provide optional extra checks when `extra_ranked_island_checks` is enabled.
+The highest rank that generates location checks. Must be >= `required_rank`. Any rank above this produces no locations at all. The ranks between `required_rank` and `max_rank` provide optional extra checks when `extra_rank_checks` is set to anything other than `none`.
 
 > **Example:** With `required_rank: bronze` and `max_rank: gold`, locations can be generated for Bronze, Silver, and Gold. Anything done at Sapphire or above produces no additional checks.
 
-#### `extra_ranked_island_checks` (Default: false)
-When enabled, island completions and equipment runs generate **separate checks for each rank** up to `max_rank`, not just at the `required_rank`. This greatly increases the total number of locations.
+#### `extra_rank_checks` (Default: none)
+Controls whether ranks **above** `required_rank` generate additional location checks. Replaces the legacy `extra_ranked_island_checks` + `non_progression_above_required` pair with a single option:
 
-When **disabled**, `max_rank` and `non_progression_above_required` have no meaningful effect, since all checks are generated only at the `required_rank` level.
+- **`none`** — Only `required_rank` produces ranked checks. Higher ranks are ignored.
+- **`progression`** — Ranks above required (up to `max_rank`) add new ranked checks, and those locations can hold progression items. Greatly increases location count.
+- **`filler_only`** — Ranks above required add new ranked checks, but those locations are excluded from progression — they only ever hold filler items. Adds checks for variety without forcing high-rank grinding for critical items.
 
-> **Example:** With `required_rank: bronze`, `max_rank: gold`, and `extra_ranked_island_checks: true`, completing Island 10 generates three separate checks: "Complete Island 10 on Bronze", "Complete Island 10 on Silver", and "Complete Island 10 on Gold". Without this option, only "Complete Island 10 on Bronze" exists.
+Has no effect when `required_rank == max_rank` (no extra ranks exist).
 
-#### `non_progression_above_required` (Default: false)
-When enabled, items placed at locations for ranks **above** the `required_rank` (but at or below `max_rank`) are classified as useful or filler only — never progression. This prevents critical items from being locked behind higher difficulty content.
-
-**Only has an effect when `extra_ranked_island_checks` is enabled.** If extra ranked checks are off, there are no above-required-rank locations to restrict.
-
-> **Example:** With `required_rank: bronze`, `max_rank: gold`, and both toggles enabled, the Bronze-rank checks can contain progression items (weapons, key unlocks, etc.), but the Silver and Gold checks will only contain helpful or filler items. You'll never be forced to play at Gold rank to find a required weapon.
+> **Example:** With `required_rank: bronze`, `max_rank: gold`, and `extra_rank_checks: progression`, completing Island 10 generates three separate checks: "Complete Island 10 on Bronze", "Complete Island 10 on Silver", and "Complete Island 10 on Gold". With `filler_only` instead, the same checks exist but the Silver/Gold ones won't hold critical items.
 
 #### `cascade_ranked_checks` (Default: false)
 When enabled, completing a check at a higher rank automatically completes the equivalent check at all lower ranks.
 
 > **Example:** With cascade enabled, completing "Island 5 on Gold" also marks "Island 5 on Silver" and "Island 5 on Bronze" as complete. Without cascade, you'd need to complete each rank separately.
+
+#### `minimize_run_checks` (Default: false)
+When enabled, drops generalized run-completion checks that are made redundant by more-specific equipment-and-rank checks. When equipment runs are enabled (`equipment_check_mode != disabled`):
+
+- "Complete Island X on Rank" checks are removed
+- "Complete Island X with Weapon" checks are removed
+
+The most specific "Complete Island X with Weapon on Rank" check is always kept.
+
+> **Example:** With minimize on and equipment runs enabled, completing "Island 5 with Auto Rifle on Bronze" is the only check generated for that combination — the standalone "Island 5 on Bronze" and "Island 5 with Auto Rifle" checks are dropped since they'd fire automatically from the same gameplay.
+
+---
+
+### Pickup Subset Limits
+
+These options scale the pickup pool down to per-run inventory caps so the AP pool doesn't grossly exceed what the player can actually carry. Both options share the same randomly-chosen subset (24 perks, 24 weapon mods, 12 ability mods, 12 melee mods, 10 relics) and can be enabled independently.
+
+#### `limit_pickup_pool` (Default: false)
+When enabled, the AP item pool is limited to the chosen subset. Items not in the subset stay in-game and can be picked up normally during runs but are never sent or received via AP. Tag-group coverage is enforced so tag-gated locations like "Relic: Time Ring" remain reachable.
+
+#### `limit_pickup_locations` (Default: false)
+When enabled, pickup location checks are only generated for items in the chosen subset. Items not in the subset still appear in-game but produce no location check when picked up.
 
 ---
 

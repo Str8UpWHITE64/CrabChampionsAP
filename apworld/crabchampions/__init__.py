@@ -9,10 +9,11 @@ from .Items import (
     CrabChampsItem, CrabChampsItemCategory, item_dictionary, key_item_names,
     item_descriptions, BuildItemPool, weapon_item_names, melee_item_names,
     ability_item_names, GREED_ITEM_NAMES, PICKUP_TAG_REQUIREMENTS, TAG_PROVIDER_NAMES,
+    select_pickup_subsets, PICKUP_INVENTORY_CAPS,
 )
 from .Locations import (
     CrabChampsLocation, CrabChampsLocationCategory, location_tables,
-    location_dictionary, RANK_NAMES, MAX_ISLANDS, NUM_RANKS,
+    RANK_NAMES, MAX_ISLANDS, NUM_RANKS,
     rank_from_location_name, SHOP_ISLANDS, _island_prefix,
 )
 from .Options import CrabChampsOption
@@ -62,6 +63,15 @@ class CrabChampsWorld(World):
         self.non_pool_weapons: List[str] = []
         self.non_pool_melee: List[str] = []
         self.non_pool_abilities: List[str] = []
+        # Pickup-subset selections — populated when limit_pickup_pool or
+        # limit_pickup_locations is enabled.  Maps category key
+        # (perk/weapon_mod/ability_mod/melee_mod/relic) -> list of names.
+        self.pickup_subsets: Dict[str, List[str]] = {}
+        self._allowed_pickup_names: Set[str] = set()
+        # Tracks which TAG_PROVIDER names have already been promoted to
+        # progression. Only the first copy of each provider needs to be
+        # progression — `any(state.has(p))` is satisfied by one copy.
+        self._provider_progression_marked: Set[str] = set()
 
     def generate_early(self):
         # Clamp max_rank >= required_rank
@@ -117,12 +127,12 @@ class CrabChampsWorld(World):
             self.random.sample(ability_item_names, self.options.abilities_in_pool.value)
         ) if self.options.abilities_in_pool.value > 0 else []
 
-        pool_weapon_set = set(self.pool_weapons)
-        pool_melee_set = set(self.pool_melee)
-        pool_ability_set = set(self.pool_abilities)
-        self.non_pool_weapons = [w for w in weapon_item_names if w not in pool_weapon_set]
-        self.non_pool_melee = [m for m in melee_item_names if m not in pool_melee_set]
-        self.non_pool_abilities = [a for a in ability_item_names if a not in pool_ability_set]
+        self.pool_weapon_set = frozenset(self.pool_weapons)
+        self.pool_melee_set = frozenset(self.pool_melee)
+        self.pool_ability_set = frozenset(self.pool_abilities)
+        self.non_pool_weapons = [w for w in weapon_item_names if w not in self.pool_weapon_set]
+        self.non_pool_melee = [m for m in melee_item_names if m not in self.pool_melee_set]
+        self.non_pool_abilities = [a for a in ability_item_names if a not in self.pool_ability_set]
 
         # Clamp starting_weapons < weapons_in_pool (must find at least one)
         max_starting = max(0, self.options.weapons_in_pool.value - 1)
@@ -136,6 +146,19 @@ class CrabChampsWorld(World):
                 self.multiworld.push_precollected(self.create_item(weapon_name))
 
         equip_mode = self.options.equipment_check_mode.value  # 0=regular, 1=filler_only, 2=disabled
+        minimize = bool(self.options.minimize_run_checks.value)
+        # Equipment runs exist when EITHER non-pool equipment is enabled
+        # (equip_mode != disabled) OR any pool has at least one item.  Pool
+        # equipment ALWAYS gets WEAPON_RUN/RANKED_WEAPON_RUN locations
+        # regardless of equip_mode, so `minimize` should drop the redundant
+        # ISLAND/RANK checks even when equip_mode is disabled.
+        have_equipment = (
+            equip_mode != 2
+            or len(self.pool_weapons) > 0
+            or len(self.pool_melee) > 0
+            or len(self.pool_abilities) > 0
+        )
+        drop_redundant = minimize and have_equipment
 
         # Always-on categories
         self.enabled_location_categories.add(CrabChampsLocationCategory.ISLAND)
@@ -149,21 +172,39 @@ class CrabChampsWorld(World):
             self.enabled_location_categories.add(CrabChampsLocationCategory.MELEE_MOD)
             self.enabled_location_categories.add(CrabChampsLocationCategory.ABILITY_MOD)
 
-        # Ranked island locations always exist (at least for required_rank).
-        self.enabled_location_categories.add(CrabChampsLocationCategory.RANKED_ISLAND)
+        # Ranked island locations always exist (at least for required_rank),
+        # unless minimize drops them in favor of ranked equipment-run checks.
+        if not drop_redundant:
+            self.enabled_location_categories.add(CrabChampsLocationCategory.RANKED_ISLAND)
 
         # Weapon run locations: pool weapons always exist, non-pool depends on equip_mode.
         # Always enable the category; _should_include_location filters per-weapon.
-        self.enabled_location_categories.add(CrabChampsLocationCategory.WEAPON_RUN)
+        # Unranked weapon-run drops when minimize covers them with the ranked variant.
+        if not drop_redundant:
+            self.enabled_location_categories.add(CrabChampsLocationCategory.WEAPON_RUN)
         self.enabled_location_categories.add(CrabChampsLocationCategory.RANKED_WEAPON_RUN)
 
         # Melee/ability run locations: only when melee/ability completion is active
         if self.options.melee_for_completion.value > 0:
-            self.enabled_location_categories.add(CrabChampsLocationCategory.MELEE_RUN)
+            if not drop_redundant:
+                self.enabled_location_categories.add(CrabChampsLocationCategory.MELEE_RUN)
             self.enabled_location_categories.add(CrabChampsLocationCategory.RANKED_MELEE_RUN)
         if self.options.ability_for_completion.value > 0:
-            self.enabled_location_categories.add(CrabChampsLocationCategory.ABILITY_RUN)
+            if not drop_redundant:
+                self.enabled_location_categories.add(CrabChampsLocationCategory.ABILITY_RUN)
             self.enabled_location_categories.add(CrabChampsLocationCategory.RANKED_ABILITY_RUN)
+
+        # Pickup subsets: select once when either limit option is enabled.
+        # Both options share the same chosen subset.
+        if (self.options.limit_pickup_pool.value
+                or self.options.limit_pickup_locations.value):
+            exclude = (GREED_ITEM_NAMES
+                       if self.options.greed_item_mode.value == 2
+                       else frozenset())
+            self.pickup_subsets = select_pickup_subsets(self.random, exclude_names=exclude)
+            self._allowed_pickup_names = {
+                n for names in self.pickup_subsets.values() for n in names
+            }
 
     def create_regions(self):
         regions: Dict[str, Region] = {}
@@ -206,27 +247,29 @@ class CrabChampsWorld(World):
 
     def _is_pool_equipment(self, equip_name: str, category) -> bool:
         """Check if an equipment name belongs to the randomized AP pool."""
-        pool_weapon_set = set(self.pool_weapons)
-        pool_melee_set = set(self.pool_melee)
-        pool_ability_set = set(self.pool_abilities)
         if category in (CrabChampsLocationCategory.WEAPON_RUN,
                         CrabChampsLocationCategory.RANKED_WEAPON_RUN):
-            return equip_name in pool_weapon_set
+            return equip_name in self.pool_weapon_set
         if category in (CrabChampsLocationCategory.MELEE_RUN,
                         CrabChampsLocationCategory.RANKED_MELEE_RUN):
-            return equip_name in pool_melee_set
+            return equip_name in self.pool_melee_set
         if category in (CrabChampsLocationCategory.ABILITY_RUN,
                         CrabChampsLocationCategory.RANKED_ABILITY_RUN):
-            return equip_name in pool_ability_set
+            return equip_name in self.pool_ability_set
         return False
 
     @staticmethod
     def _extract_island_num(name: str) -> int:
         """Extract the island number from a location name.
         Handles both 'Complete Island X ...' and 'Reach Shop on Island X ...' patterns."""
-        import re
-        m = re.search(r'Island\s+(\d+)', name)
-        return int(m.group(1)) if m else 0
+        idx = name.find("Island ")
+        if idx == -1:
+            return 0
+        start = idx + 7
+        end = start
+        while end < len(name) and name[end].isdigit():
+            end += 1
+        return int(name[start:end]) if end > start else 0
 
     def _should_include_location(self, location) -> bool:
         """Check if a location should be included based on options."""
@@ -245,10 +288,25 @@ class CrabChampsWorld(World):
                 if item_name in GREED_ITEM_NAMES:
                     return False
 
+        # Limit pickup locations to the chosen subset when enabled.
+        # Only restrict pickup categories — equipment runs are handled separately.
+        if self.options.limit_pickup_locations.value:
+            if location.category in (
+                CrabChampsLocationCategory.PERK,
+                CrabChampsLocationCategory.RELIC,
+                CrabChampsLocationCategory.WEAPON_MOD,
+                CrabChampsLocationCategory.MELEE_MOD,
+                CrabChampsLocationCategory.ABILITY_MOD,
+            ):
+                item_name = location.name.split(": ", 1)[-1] if ": " in location.name else ""
+                if item_name not in self._allowed_pickup_names:
+                    return False
+
         run_length = self.options.run_length.value
         max_rank = self.options.max_rank.value
         required_rank = self.options.required_rank.value
-        extra_ranked = bool(self.options.extra_ranked_island_checks.value)
+        extra_rank_mode = self.options.extra_rank_checks.value
+        extra_ranked = extra_rank_mode != 0
         equip_mode = self.options.equipment_check_mode.value
 
         # Determine which ranks are allowed for ranked locations:
@@ -359,8 +417,20 @@ class CrabChampsWorld(World):
         max_rank = self.options.max_rank.value
         run_length = self.options.run_length.value
         equip_mode = self.options.equipment_check_mode.value
-        extra_ranked = bool(self.options.extra_ranked_island_checks.value)
-        non_prog_above = bool(self.options.non_progression_above_required.value)
+        extra_rank_mode = self.options.extra_rank_checks.value
+        extra_ranked = extra_rank_mode != 0
+        non_prog_above = extra_rank_mode == 2
+        minimize = bool(self.options.minimize_run_checks.value)
+        # Same definition as in generate_early — pool equipment always has
+        # locations regardless of equip_mode, so minimize can drop redundant
+        # checks whenever any pool is non-empty.
+        have_equipment = (
+            equip_mode != 2
+            or len(self.pool_weapons) > 0
+            or len(self.pool_melee) > 0
+            or len(self.pool_abilities) > 0
+        )
+        drop_redundant = minimize and have_equipment
         excluded = 0
 
         n_non_pool_weapons = len(self.non_pool_weapons)
@@ -377,8 +447,9 @@ class CrabChampsWorld(World):
         # (pool equipment locations are always regular)
         if equip_mode == 1:  # filler_only
             n_non_pool = n_non_pool_weapons + n_non_pool_melee + n_non_pool_abilities
-            # Unranked non-pool equipment runs (only exist when extra_ranked is off)
-            if not extra_ranked:
+            # Unranked non-pool equipment runs (only exist when extra_ranked is off
+            # AND minimize did not drop them).
+            if not extra_ranked and not drop_redundant:
                 excluded += run_length * n_non_pool
             # Ranked non-pool equipment runs (one set per included rank tier)
             excluded += len(ranked_tiers) * run_length * n_non_pool
@@ -392,8 +463,9 @@ class CrabChampsWorld(World):
             n_all_equip = n_all_weapons + n_all_melee + n_all_abilities
 
             for r in range(required_rank + 1, max_rank + 1):
-                # Ranked islands above required
-                excluded += run_length
+                # Ranked islands above required (skipped when minimize drops the category)
+                if not drop_redundant:
+                    excluded += run_length
                 # Ranked equipment runs above required (only if not already counted by filler_only)
                 if equip_mode != 1:
                     excluded += run_length * n_all_equip
@@ -434,10 +506,16 @@ class CrabChampsWorld(World):
 
         # Exclude greed items from pool when greed_item_mode == skip (2)
         exclude = GREED_ITEM_NAMES if self.options.greed_item_mode.value == 2 else None
+        # When limit_pickup_pool is on, only items in the chosen subset are
+        # eligible for pool steps 4-6 (relics + stackables + extras).
+        pickup_subsets = (
+            self.pickup_subsets if self.options.limit_pickup_pool.value else None
+        )
         remaining = location_count - slot_item_count
         pool = BuildItemPool(self.multiworld, remaining, self.options,
                              self.pool_weapons, self.pool_melee, self.pool_abilities,
-                             exclude_names=exclude)
+                             exclude_names=exclude,
+                             pickup_subsets=pickup_subsets)
         for item_data in pool:
             itempool.append(self.create_item(item_data.name))
 
@@ -482,8 +560,15 @@ class CrabChampsWorld(World):
             CrabChampsItemCategory.ABILITY_MOD,
         ):
             # Items that provide pickup tags gate other locations, so they
-            # must be progression for state.has() to count them.
-            if name in TAG_PROVIDER_NAMES:
+            # must be progression for state.has() to count them. Only applies
+            # when pickup_checks is on — otherwise no locations need tags.
+            # Only the FIRST copy of each provider name needs to be progression;
+            # `any(state.has(p))` is satisfied by one copy, so extra copies
+            # would just consume progression-eligible locations unnecessarily.
+            if (name in TAG_PROVIDER_NAMES
+                    and self.options.pickup_checks.value
+                    and name not in self._provider_progression_marked):
+                self._provider_progression_marked.add(name)
                 classification = ItemClassification.progression
             else:
                 classification = ItemClassification.useful
@@ -502,246 +587,22 @@ class CrabChampsWorld(World):
     def set_rules(self) -> None:
         required_rank = self.options.required_rank.value
         max_rank = self.options.max_rank.value
-        run_length = self.options.run_length.value
         weapons_needed = self.options.weapons_for_completion.value
         melee_needed = self.options.melee_for_completion.value
         abilities_needed = self.options.ability_for_completion.value
-        extra_ranked = bool(self.options.extra_ranked_island_checks.value)
-        cascade = bool(self.options.cascade_ranked_checks.value)
-        non_prog_above = bool(self.options.non_progression_above_required.value)
+        extra_rank_mode = self.options.extra_rank_checks.value
+        extra_ranked = extra_rank_mode != 0
+        non_prog_above = extra_rank_mode == 2
         equip_mode = self.options.equipment_check_mode.value  # 0=regular, 1=filler_only, 2=disabled
-        def _il(i, equip=None, rank=None):
-            """Build the correct location name for an island, handling shop islands."""
-            pfx = _island_prefix(i)
-            name = f"{pfx} {i}"
-            if equip:
-                name += f" with {equip}"
-            if rank is not None:
-                name += f" on {rank}"
-            return name
 
-        final_island = _il(run_length)
-        required_rank_name = RANK_NAMES[required_rank]
-
-        pool_weapon_set = set(self.pool_weapons)
-        pool_melee_set = set(self.pool_melee)
-        pool_ability_set = set(self.pool_abilities)
-
-        # Determine which ranked tiers have locations
-        if extra_ranked:
-            ranked_tiers = list(range(max_rank + 1))
-        else:
-            ranked_tiers = [required_rank]
-
-        # --- Unranked island chain: Island N requires Island N-1 ---
-        # (Only when unranked islands exist, i.e. extra_ranked is off)
-        if not extra_ranked:
-            for island in range(2, run_length + 1):
-                current = _il(island)
-                previous = _il(island - 1)
-                set_rule(
-                    self.multiworld.get_location(current, self.player),
-                    lambda state, prev=previous: state.can_reach_location(prev, self.player)
-                )
-
-        # --- Ranked island chains (for all included rank tiers) ---
-        for r in ranked_tiers:
-            rname = RANK_NAMES[r]
-            for island in range(1, run_length + 1):
-                loc_name = _il(island, rank=rname)
-                try:
-                    location = self.multiworld.get_location(loc_name, self.player)
-                except KeyError:
-                    continue
-
-                if island == 1:
-                    pass
-                elif cascade and not extra_ranked:
-                    # Cascade + unranked exists: depend on unranked previous island
-                    prev_name = _il(island - 1)
-                    set_rule(
-                        location,
-                        lambda state, prev=prev_name: state.can_reach_location(prev, self.player)
-                    )
-                else:
-                    # No cascade, or cascade without unranked: chain within same rank
-                    prev_name = _il(island - 1, rank=rname)
-                    set_rule(
-                        location,
-                        lambda state, prev=prev_name: state.can_reach_location(prev, self.player)
-                    )
-
-        # --- Rank runs ---
-        if extra_ranked:
-            # Sequential chain: Bronze requires final ranked island, each rank requires previous
-            final_island_dep = _il(run_length, rank=RANK_NAMES[0])
-            try:
-                set_rule(
-                    self.multiworld.get_location("Complete Run on Bronze", self.player),
-                    lambda state, fi=final_island_dep: state.can_reach_location(fi, self.player)
-                )
-            except KeyError:
-                pass
-
-            for i in range(1, max_rank + 1):
-                current_rank = RANK_NAMES[i]
-                previous_rank = RANK_NAMES[i - 1]
-                try:
-                    set_rule(
-                        self.multiworld.get_location(f"Complete Run on {current_rank}", self.player),
-                        lambda state, prev=previous_rank: state.can_reach_location(
-                            f"Complete Run on {prev}", self.player
-                        )
-                    )
-                except KeyError:
-                    pass
-        else:
-            # Only required_rank exists: depends on final ranked island at required_rank
-            final_ranked_dep = _il(run_length, rank=required_rank_name)
-            try:
-                set_rule(
-                    self.multiworld.get_location(f"Complete Run on {required_rank_name}", self.player),
-                    lambda state, fi=final_ranked_dep: state.can_reach_location(fi, self.player)
-                )
-            except KeyError:
-                pass
-
-        # --- Equipment run rules ---
-        # Pool equipment: always set rules (require AP item, locations always exist).
-        # Non-pool equipment: set rules only when equip_mode != disabled.
-        def _set_equipment_rules(equipment_names, category, ranked_category,
-                                 require_item, pool_set):
-            """Set rules for equipment-island locations (unranked and ranked)."""
-            for island in range(1, run_length + 1):
-                island_loc = _il(island)
-                for equip_name in equipment_names:
-                    is_pool = equip_name in pool_set
-                    need_item = require_item and is_pool
-
-                    # Unranked (only when extra_ranked is off)
-                    if not extra_ranked:
-                        loc_name = _il(island, equip=equip_name)
-                        try:
-                            location = self.multiworld.get_location(loc_name, self.player)
-                            if need_item:
-                                set_rule(
-                                    location,
-                                    lambda state, il=island_loc, en=equip_name: (
-                                        state.can_reach_location(il, self.player)
-                                        and state.has(en, self.player)
-                                    )
-                                )
-                            else:
-                                set_rule(
-                                    location,
-                                    lambda state, il=island_loc: state.can_reach_location(il, self.player)
-                                )
-                        except KeyError:
-                            pass
-
-                    # Ranked (for each included rank tier)
-                    for r in ranked_tiers:
-                        rname = RANK_NAMES[r]
-                        ranked_loc = _il(island, equip=equip_name, rank=rname)
-                        if cascade and not extra_ranked:
-                            # Cascade + unranked exists: depend on unranked island
-                            ranked_island_dep = island_loc
-                        else:
-                            # No cascade, or no unranked islands: depend on ranked island
-                            ranked_island_dep = _il(island, rank=rname)
-                        try:
-                            location = self.multiworld.get_location(ranked_loc, self.player)
-                            if need_item:
-                                set_rule(
-                                    location,
-                                    lambda state, il=ranked_island_dep, en=equip_name: (
-                                        state.can_reach_location(il, self.player)
-                                        and state.has(en, self.player)
-                                    )
-                                )
-                            else:
-                                set_rule(
-                                    location,
-                                    lambda state, il=ranked_island_dep: (
-                                        state.can_reach_location(il, self.player)
-                                    )
-                                )
-                        except KeyError:
-                            pass
-
-        # All weapons that have locations (pool always, non-pool when not disabled)
-        all_active_weapons = list(self.pool_weapons)
-        if equip_mode != 2:
-            all_active_weapons += self.non_pool_weapons
-        _set_equipment_rules(
-            all_active_weapons,
+        _equip_categories = {
             CrabChampsLocationCategory.WEAPON_RUN,
+            CrabChampsLocationCategory.MELEE_RUN,
+            CrabChampsLocationCategory.ABILITY_RUN,
             CrabChampsLocationCategory.RANKED_WEAPON_RUN,
-            require_item=True,
-            pool_set=pool_weapon_set,
-        )
-
-        if melee_needed > 0:
-            all_active_melee = list(self.pool_melee)
-            if equip_mode != 2:
-                all_active_melee += self.non_pool_melee
-            _set_equipment_rules(
-                all_active_melee,
-                CrabChampsLocationCategory.MELEE_RUN,
-                CrabChampsLocationCategory.RANKED_MELEE_RUN,
-                require_item=True,
-                pool_set=pool_melee_set,
-            )
-
-        if abilities_needed > 0:
-            all_active_abilities = list(self.pool_abilities)
-            if equip_mode != 2:
-                all_active_abilities += self.non_pool_abilities
-            _set_equipment_rules(
-                all_active_abilities,
-                CrabChampsLocationCategory.ABILITY_RUN,
-                CrabChampsLocationCategory.RANKED_ABILITY_RUN,
-                require_item=True,
-                pool_set=pool_ability_set,
-            )
-
-        # Mark NON-POOL equipment run locations as EXCLUDED when filler_only
-        if equip_mode == 1:
-            _equip_categories = {
-                CrabChampsLocationCategory.WEAPON_RUN,
-                CrabChampsLocationCategory.MELEE_RUN,
-                CrabChampsLocationCategory.ABILITY_RUN,
-                CrabChampsLocationCategory.RANKED_WEAPON_RUN,
-                CrabChampsLocationCategory.RANKED_MELEE_RUN,
-                CrabChampsLocationCategory.RANKED_ABILITY_RUN,
-            }
-            for location in self.multiworld.get_locations(self.player):
-                if not hasattr(location, 'category') or location.category not in _equip_categories:
-                    continue
-                equip_name = self._extract_equip_name(location.name)
-                if not self._is_pool_equipment(equip_name, location.category):
-                    location.progress_type = LocationProgressType.EXCLUDED
-
-        # --- Non-progression above required rank ---
-        if non_prog_above and extra_ranked:
-            for location in self.multiworld.get_locations(self.player):
-                if not hasattr(location, 'category'):
-                    continue
-                rank = rank_from_location_name(location.name)
-                if rank > required_rank:
-                    location.progress_type = LocationProgressType.EXCLUDED
-
-            # Also exclude rank run locations above required
-            for r in range(required_rank + 1, max_rank + 1):
-                try:
-                    loc = self.multiworld.get_location(f"Complete Run on {RANK_NAMES[r]}", self.player)
-                    loc.progress_type = LocationProgressType.EXCLUDED
-                except KeyError:
-                    pass
-
-        # --- Pickup tag prerequisites ---
-        # Some perks/mods/relics only appear in-game when the player already has
-        # an item with a matching PickupTag. Set access rules accordingly.
+            CrabChampsLocationCategory.RANKED_MELEE_RUN,
+            CrabChampsLocationCategory.RANKED_ABILITY_RUN,
+        }
         pickup_cats = (
             CrabChampsLocationCategory.PERK,
             CrabChampsLocationCategory.RELIC,
@@ -749,74 +610,84 @@ class CrabChampsWorld(World):
             CrabChampsLocationCategory.MELEE_MOD,
             CrabChampsLocationCategory.ABILITY_MOD,
         )
+
+        # --- Single pass over all locations ---
+        # Island completion locations have no AP-item prerequisites (the player
+        # can always reach any island through normal gameplay), so no access
+        # rules are needed for them.  Equipment-island locations only require
+        # the player to have the weapon/melee/ability if it is in the AP pool.
         for location in self.multiworld.get_locations(self.player):
-            if not hasattr(location, 'category') or location.category not in pickup_cats:
+            if not hasattr(location, 'category'):
                 continue
-            item_name = location.name.split(": ", 1)[-1] if ": " in location.name else ""
-            providers = PICKUP_TAG_REQUIREMENTS.get(item_name)
-            if providers:
-                set_rule(
-                    location,
-                    lambda state, p=providers: any(
-                        state.has(item, self.player) for item in p
-                    )
-                )
+            cat = location.category
+
+            # Equipment run: pool items need state.has() rule
+            if cat in _equip_categories:
+                equip_name = self._extract_equip_name(location.name)
+                is_pool = self._is_pool_equipment(equip_name, cat)
+                if is_pool:
+                    set_rule(location, lambda state, en=equip_name: state.has(en, self.player))
+                elif equip_mode == 1:  # filler_only for non-pool
+                    location.progress_type = LocationProgressType.EXCLUDED
+
+            # Pickup tag prerequisites
+            elif cat in pickup_cats:
+                item_name = location.name.split(": ", 1)[-1] if ": " in location.name else ""
+                providers = PICKUP_TAG_REQUIREMENTS.get(item_name)
+                if providers:
+                    # When limit_pickup_pool is on, only providers actually
+                    # in the chosen subset can satisfy state.has() — others
+                    # are never sent as AP items.  Filter the rule's
+                    # provider list to the in-pool ones.
+                    if self.options.limit_pickup_pool.value:
+                        providers = [p for p in providers
+                                     if p in self._allowed_pickup_names]
+                    if providers:
+                        set_rule(
+                            location,
+                            lambda state, p=providers: any(
+                                state.has(item, self.player) for item in p
+                            )
+                        )
+
+            # Non-progression above required rank
+            if non_prog_above and extra_ranked:
+                rank = rank_from_location_name(location.name)
+                if rank > required_rank:
+                    location.progress_type = LocationProgressType.EXCLUDED
+
+        # Also exclude rank run locations above required
+        if non_prog_above and extra_ranked:
+            for r in range(required_rank + 1, max_rank + 1):
+                try:
+                    loc = self.multiworld.get_location(f"Complete Run on {RANK_NAMES[r]}", self.player)
+                    loc.progress_type = LocationProgressType.EXCLUDED
+                except KeyError:
+                    pass
 
         # --- Victory rule ---
-        # Goal: complete final island with enough different equipment at required rank.
-        # Pool equipment requires AP items; non-pool equipment is available from the start.
-        # When equip_mode == disabled, non-pool locations don't exist so only pool counts.
+        # The player must complete enough different equipment runs.
+        # Pool equipment requires the AP item (state.has); non-pool equipment
+        # is always available.  Island reachability requires no AP items
+        # (the player progresses through islands via normal gameplay).
+        n_non_pool_w = len(self.non_pool_weapons) if equip_mode != 2 else 0
+        n_non_pool_m = (len(self.non_pool_melee) if equip_mode != 2 else 0) if melee_needed > 0 else 0
+        n_non_pool_a = (len(self.non_pool_abilities) if equip_mode != 2 else 0) if abilities_needed > 0 else 0
 
-        # Build list of ALL equipment that has locations toward victory
-        victory_weapons = list(self.pool_weapons)
-        victory_melee = list(self.pool_melee)
-        victory_abilities = list(self.pool_abilities)
-        if equip_mode != 2:  # regular or filler_only: non-pool has locations too
-            victory_weapons += self.non_pool_weapons
-            if melee_needed > 0:
-                victory_melee += self.non_pool_melee
-            if abilities_needed > 0:
-                victory_abilities += self.non_pool_abilities
+        # Snapshot pool lists for the closure
+        pw = list(self.pool_weapons)
+        pm = list(self.pool_melee)
+        pa = list(self.pool_abilities)
 
-        # Pre-build victory location names using _il helper
-        equip_rank = required_rank_name  # e.g. "Bronze"
-        victory_weapon_locs = {w: _il(run_length, equip=w, rank=equip_rank)
-                               for w in victory_weapons}
-        victory_melee_locs = {m: _il(run_length, equip=m, rank=equip_rank)
-                              for m in victory_melee}
-        victory_ability_locs = {a: _il(run_length, equip=a, rank=equip_rank)
-                                for a in victory_abilities}
-
-        def victory_rule(state, rank_name=required_rank_name, wn=weapons_needed,
-                         mn=melee_needed, an=abilities_needed,
-                         wl=victory_weapon_locs, ml=victory_melee_locs,
-                         al=victory_ability_locs):
-            # Must complete the required rank
-            if not state.can_reach_location(f"Complete Run on {rank_name}", self.player):
+        def victory_rule(state, wn=weapons_needed, mn=melee_needed, an=abilities_needed,
+                         npw=n_non_pool_w, npm=n_non_pool_m, npa=n_non_pool_a,
+                         _pw=pw, _pm=pm, _pa=pa):
+            if sum(1 for w in _pw if state.has(w, self.player)) + npw < wn:
                 return False
-            # Must reach final island with enough different weapons at required rank
-            weapon_count = sum(
-                1 for w, loc in wl.items()
-                if state.can_reach_location(loc, self.player)
-            )
-            if weapon_count < wn:
+            if mn > 0 and sum(1 for m in _pm if state.has(m, self.player)) + npm < mn:
                 return False
-            # Melee (if enabled)
-            if mn > 0:
-                melee_count = sum(
-                    1 for m, loc in ml.items()
-                    if state.can_reach_location(loc, self.player)
-                )
-                if melee_count < mn:
-                    return False
-            # Abilities (if enabled)
-            if an > 0:
-                ability_count = sum(
-                    1 for a, loc in al.items()
-                    if state.can_reach_location(loc, self.player)
-                )
-                if ability_count < an:
-                    return False
+            if an > 0 and sum(1 for a in _pa if state.has(a, self.player)) + npa < an:
+                return False
             return True
 
         set_rule(self.multiworld.get_location("Victory", self.player), victory_rule)
@@ -826,37 +697,25 @@ class CrabChampsWorld(World):
         )
 
     def fill_slot_data(self) -> Dict[str, object]:
-        name_to_cc_code = {item.name: item.cc_code for item in item_dictionary.values()}
-
-        items_id = []
-        items_address = []
-        locations_id = []
-        locations_address = []
-        locations_target = []
-
-        for location in self.multiworld.get_filled_locations():
-            if location.item.player == self.player and location.item.name in name_to_cc_code:
-                items_id.append(location.item.code)
-                items_address.append(name_to_cc_code[location.item.name])
-
-            if location.player == self.player and location.name in location_dictionary:
-                loc_data = location_dictionary[location.name]
-                locations_address.append(name_to_cc_code.get(loc_data.default_item, 0))
-                locations_id.append(location.address)
-                if location.item.player == self.player and location.item.name in name_to_cc_code:
-                    locations_target.append(name_to_cc_code[location.item.name])
-                else:
-                    locations_target.append(0)
-
+        # NOTE: We intentionally do NOT include `locationsId`/`itemsId` arrays
+        # in slot_data.  The Lua client gets the authoritative location list
+        # from the AP protocol's Connected packet (`missing_locations` +
+        # `checked_locations`), and item IDs from items_received events.
+        # Bundling those into slot_data is non-idiomatic and was unused.
         return {
             "options": {
                 "required_rank": self.options.required_rank.value,
                 "required_rank_name": RANK_NAMES[self.options.required_rank.value],
                 "max_rank": self.options.max_rank.value,
                 "max_rank_name": RANK_NAMES[self.options.max_rank.value],
-                "extra_ranked_island_checks": bool(self.options.extra_ranked_island_checks.value),
+                # Canonical option (replaces extra_ranked_island_checks +
+                # non_progression_above_required since v1.3.0).
+                "extra_rank_checks": self.options.extra_rank_checks.value,
+                # Derived booleans, kept in slot_data for client compatibility.
+                "extra_ranked_island_checks": self.options.extra_rank_checks.value != 0,
+                "non_progression_above_required": self.options.extra_rank_checks.value == 2,
                 "cascade_ranked_checks": bool(self.options.cascade_ranked_checks.value),
-                "non_progression_above_required": bool(self.options.non_progression_above_required.value),
+                "minimize_run_checks": bool(self.options.minimize_run_checks.value),
                 "run_length": self.options.run_length.value,
                 "weapons_for_completion": self.options.weapons_for_completion.value,
                 "weapons_in_pool": self.options.weapons_in_pool.value,
@@ -872,6 +731,9 @@ class CrabChampsWorld(World):
                 "guaranteed_items": self.options.guaranteed_items.value,
                 "greed_item_mode": self.options.greed_item_mode.value,
                 "pickup_checks": bool(self.options.pickup_checks.value),
+                "limit_pickup_pool": bool(self.options.limit_pickup_pool.value),
+                "limit_pickup_locations": bool(self.options.limit_pickup_locations.value),
+                "pickup_subsets": self.pickup_subsets,
                 "progressive_slots": bool(self.options.progressive_slots.value),
                 "starting_perk_slots": self.options.starting_perk_slots.value,
                 "starting_weapon_mod_slots": self.options.starting_weapon_mod_slots.value,
@@ -883,9 +745,4 @@ class CrabChampsWorld(World):
             "seed": self.multiworld.seed_name,
             "slot": self.multiworld.player_name[self.player],
             "base_id": self.base_id,
-            "locationsId": locations_id,
-            "locationsAddress": locations_address,
-            "locationsTarget": locations_target,
-            "itemsId": items_id,
-            "itemsAddress": items_address,
         }

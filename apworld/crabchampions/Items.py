@@ -356,10 +356,98 @@ TAG_PROVIDER_NAMES: frozenset = frozenset(
     name for providers in PICKUP_TAG_REQUIREMENTS.values() for name in providers
 )
 
+# Per-run inventory caps for pickup categories.
+# Used by the LimitPickupPool / LimitPickupLocations options.
+PICKUP_INVENTORY_CAPS: Dict[str, int] = {
+    "perk": 24,
+    "weapon_mod": 24,
+    "ability_mod": 12,
+    "melee_mod": 12,
+    "relic": 10,
+}
+
+
+def select_pickup_subsets(rng, exclude_names: frozenset = frozenset()
+                          ) -> Dict[str, List[str]]:
+    """Randomly choose a per-category subset of pickup items, sized to the
+    inventory caps in PICKUP_INVENTORY_CAPS.
+
+    Tag-group coverage is enforced: at least one provider per pickup-tag
+    group is guaranteed to be included so tag-gated locations stay reachable.
+
+    Items in `exclude_names` (e.g. greed items when greed_item_mode == skip)
+    are removed from the eligible candidates before sampling.
+
+    Returns a dict mapping category key -> sorted list of chosen item names.
+    """
+    # Map category key -> (full population list, item-category)
+    populations = {
+        "perk": (perk_item_names, CrabChampsItemCategory.PERK),
+        "weapon_mod": (weapon_mod_item_names, CrabChampsItemCategory.WEAPON_MOD),
+        "ability_mod": (ability_mod_item_names, CrabChampsItemCategory.ABILITY_MOD),
+        "melee_mod": (melee_mod_item_names, CrabChampsItemCategory.MELEE_MOD),
+        "relic": (relic_item_names, CrabChampsItemCategory.RELIC),
+    }
+
+    # Build category-key for each provider name once.
+    name_to_cat_key: Dict[str, str] = {}
+    for cat_key, (names, _) in populations.items():
+        for n in names:
+            name_to_cat_key[n] = cat_key
+
+    chosen: Dict[str, set] = {key: set() for key in populations}
+
+    # 1. Tag-group coverage pass: pick one provider per tag group, into the
+    #    appropriate category.  If a group has multiple providers in
+    #    different categories, pick one that fits (whichever the rng grabs
+    #    first that hasn't already been chosen).
+    for providers in PICKUP_TAG_REQUIREMENTS.values():
+        eligible = [p for p in providers if p in name_to_cat_key
+                    and p not in exclude_names]
+        if not eligible:
+            continue
+        # If any provider is already chosen for its tag group, this group is
+        # already covered.
+        if any(p in chosen[name_to_cat_key[p]] for p in eligible):
+            continue
+        # Pick a random provider whose category still has room.
+        rng.shuffle(eligible)
+        picked = None
+        for p in eligible:
+            cat_key = name_to_cat_key[p]
+            cap = PICKUP_INVENTORY_CAPS[cat_key]
+            if len(chosen[cat_key]) < cap:
+                picked = p
+                chosen[cat_key].add(p)
+                break
+        # If every category is already at cap, we have to overrun the cap
+        # to keep coverage.  Pick anyway — better to slightly exceed cap
+        # than to leave a tag-gated location unreachable.
+        if picked is None:
+            p = eligible[0]
+            chosen[name_to_cat_key[p]].add(p)
+
+    # 2. Random fill pass: for each category, fill remaining slots from
+    #    candidates not yet chosen.
+    for cat_key, (names, _) in populations.items():
+        cap = PICKUP_INVENTORY_CAPS[cat_key]
+        remaining = cap - len(chosen[cat_key])
+        if remaining <= 0:
+            continue
+        candidates = [n for n in names
+                      if n not in chosen[cat_key] and n not in exclude_names]
+        if remaining >= len(candidates):
+            chosen[cat_key].update(candidates)
+        else:
+            chosen[cat_key].update(rng.sample(candidates, remaining))
+
+    return {key: sorted(names) for key, names in chosen.items()}
+
 
 def BuildItemPool(multiworld, count, options,
                   pool_weapons=None, pool_melee=None, pool_abilities=None,
-                  exclude_names=None) -> List[CrabChampsItemData]:
+                  exclude_names=None,
+                  pickup_subsets=None) -> List[CrabChampsItemData]:
     """Build an item pool of exactly `count` items, respecting options.
 
     Pool construction order:
@@ -372,6 +460,10 @@ def BuildItemPool(multiworld, count, options,
 
     Items in `exclude_names` (e.g., greed items when greed_item_mode == skip)
     are excluded from steps 3-5.
+
+    `pickup_subsets`: optional dict mapping category key (perk/weapon_mod/
+    ability_mod/melee_mod/relic) -> list of allowed item names.  When provided,
+    only those items participate in steps 3-5; other pickups are not added.
     """
     if pool_weapons is None:
         pool_weapons = []
@@ -381,6 +473,15 @@ def BuildItemPool(multiworld, count, options,
         pool_abilities = []
     if exclude_names is None:
         exclude_names = frozenset()
+
+    # Resolve which pickup items are eligible.  When subsets are provided,
+    # only items in the subset for each category are eligible.
+    if pickup_subsets is not None:
+        allowed_pickups = set()
+        for names in pickup_subsets.values():
+            allowed_pickups.update(names)
+    else:
+        allowed_pickups = None  # no restriction
 
     item_pool: List[CrabChampsItemData] = []
     pool_names: List[str] = []  # parallel tracker for fast lookups
@@ -400,15 +501,23 @@ def BuildItemPool(multiworld, count, options,
         if name not in pool_names:
             _add(item_dictionary[name])
 
-    # 4. Relics — one copy each (they don't stack)
+    # 4. Relics — one copy each (they don't stack).
+    #    Skip relics not in the chosen subset when limited.
     for item in _relic_items:
-        if item.name not in pool_names and item.name not in exclude_names:
-            _add(item)
+        if item.name in pool_names or item.name in exclude_names:
+            continue
+        if allowed_pickups is not None and item.name not in allowed_pickups:
+            continue
+        _add(item)
 
-    # 5. One copy of every stackable item not yet in pool
+    # 5. One copy of every stackable item not yet in pool.
+    #    Skip stackable items not in the chosen subset when limited.
     for item in _stackable_items:
-        if item.name not in pool_names and item.name not in exclude_names:
-            _add(item)
+        if item.name in pool_names or item.name in exclude_names:
+            continue
+        if allowed_pickups is not None and item.name not in allowed_pickups:
+            continue
+        _add(item)
 
     remaining = count - len(item_pool)
 
@@ -435,9 +544,14 @@ def BuildItemPool(multiworld, count, options,
         for item in crystal_list:
             _add(item)
 
-        # Distribute stackable slots evenly across stackable items
+        # Distribute stackable slots evenly across stackable items.
+        # When limited, only chosen stackables are eligible for duplication.
         if stackable_slots > 0:
-            eligible_stackable = [it for it in _stackable_items if it.name not in exclude_names]
+            eligible_stackable = [
+                it for it in _stackable_items
+                if it.name not in exclude_names
+                and (allowed_pickups is None or it.name in allowed_pickups)
+            ]
             stackable_count = len(eligible_stackable)
             if stackable_count > 0:
                 base_copies = stackable_slots // stackable_count
