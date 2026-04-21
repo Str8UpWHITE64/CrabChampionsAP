@@ -19,7 +19,6 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 
 - [Crab Champions](https://store.steampowered.com/app/774801/Crab_Champions/)
 - [UE4SS v3.0.1](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/v3.0.1)
-- [lua-apclient](github.com/black-sliver/lua-apclientpp/releases/tag/v0.6.4)
 - [Archipelago](https://archipelago.gg/) v0.6.4+
 
 ## Installation
