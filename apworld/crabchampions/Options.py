@@ -38,7 +38,7 @@ class RunLength(Choice):
       short (28): one full biome cycle
       full  (56): two full biome cycles
 
-    All island/equipment/rank locations scale with this value — a Full run
+    All island/equipment/rank locations scale with this value - a Full run
     has roughly twice the location count of a Short run."""
     display_name = "Run Length"
     option_short = 28
@@ -64,7 +64,7 @@ class MeleeForCompletion(Range):
     runs before you can win.  Works the same as Weapons for Completion but
     for melee.
 
-    Set to 0 to disable melee entirely — no melee items in the pool, no
+    Set to 0 to disable melee entirely - no melee items in the pool, no
     melee location checks, and no melee requirement for victory."""
     display_name = "Melee for Completion"
     range_start = 0
@@ -77,7 +77,7 @@ class AbilityForCompletion(Range):
     runs before you can win.  Works the same as Weapons for Completion but
     for abilities.
 
-    Set to 0 to disable abilities entirely — no ability items in the pool,
+    Set to 0 to disable abilities entirely - no ability items in the pool,
     no ability location checks, and no ability requirement for victory."""
     display_name = "Abilities for Completion"
     range_start = 0
@@ -150,7 +150,7 @@ class StartingWeapons(Range):
 
 class EquipmentCheckMode(Choice):
     """Controls whether non-pool weapons/melee/abilities have their own
-    run-completion location checks.  (Pool equipment ALWAYS has checks —
+    run-completion location checks.  (Pool equipment ALWAYS has checks -
     this option is only about non-pool items, which are available from
     the start.)
 
@@ -159,7 +159,7 @@ class EquipmentCheckMode(Choice):
         any item, including progression.  Maximum locations.
     filler_only:
         Non-pool equipment runs exist as locations but are marked excluded
-        — they only ever hold filler.  Adds checks for variety without
+        - they only ever hold filler.  Adds checks for variety without
         requiring you to use every weapon for progression.
     disabled:
         Non-pool equipment run locations are not generated at all.  This
@@ -180,7 +180,7 @@ class MaxRank(Choice):
     be >= Required Rank (auto-clamped).
 
     Has no effect unless Extra Rank Checks is set to something other than
-    "none" — without extra rank checks, only Required Rank generates
+    "none" - without extra rank checks, only Required Rank generates
     locations and Max Rank is ignored."""
     display_name = "Max Rank"
     option_bronze = 0
@@ -209,7 +209,7 @@ class ExtraRankChecks(Choice):
         location count and turns higher difficulty into real progression.
     filler_only:
         Ranks above Required add new ranked checks but those locations
-        are marked excluded — they only hold filler.  Use this to add
+        are marked excluded - they only hold filler.  Use this to add
         more checks for variety/filler without forcing yourself to grind
         higher ranks for critical items.
 
@@ -227,7 +227,7 @@ class CascadeRankedChecks(Toggle):
     "Island 5 with Auto Rifle on Gold" also sends checks for "Island 5
     with Auto Rifle on Silver" and "...on Bronze".
 
-    Convenient when playing at high ranks — you don't have to redo runs
+    Convenient when playing at high ranks - you don't have to redo runs
     at lower ranks for the easier checks.  Has no effect on generation
     or fill, only on what the in-game client sends as you play."""
     display_name = "Cascade Ranked Checks"
@@ -277,7 +277,7 @@ class LimitPickupPool(Toggle):
     Items NOT in the chosen subset stay in-game and can be picked up
     normally during runs, but are never sent or received via AP.
 
-    Tag-group coverage is enforced — at least one provider per pickup-tag
+    Tag-group coverage is enforced - at least one provider per pickup-tag
     group is guaranteed in the subset, so tag-gated locations (like
     "Relic: Time Ring") remain reachable.
 
@@ -387,7 +387,7 @@ class CrystalCachePercentage(Range):
 
 
 class GreedItemMode(Choice):
-    """How to handle Greed items — perks/relics/mods that can't be dropped
+    """How to handle Greed items - perks/relics/mods that can't be dropped
     once picked up, making them a permanent commitment for the run.
 
     auto:
@@ -421,7 +421,7 @@ class GuaranteedItemsOption(ItemDict):
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Dataclass — option order controls display order in the WebUI
+# Dataclass - option order controls display order in the WebUI
 # ──────────────────────────────────────────────────────────────────────────
 
 @dataclass
