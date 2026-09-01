@@ -63,6 +63,11 @@ class CrabChampsWorld(World):
         self.non_pool_weapons: List[str] = []
         self.non_pool_melee: List[str] = []
         self.non_pool_abilities: List[str] = []
+        # Precollected pool equipment — the player starts holding these, so
+        # they are left out of the item pool in create_items.
+        self.starting_weapon_names: List[str] = []
+        self.starting_melee: List[str] = []
+        self.starting_abilities: List[str] = []
         # Pickup-subset selections — populated when limit_pickup_pool or
         # limit_pickup_locations is enabled.  Maps category key
         # (perk/weapon_mod/ability_mod/melee_mod/relic) -> list of names.
@@ -92,11 +97,12 @@ class CrabChampsWorld(World):
         if self.options.abilities_in_pool.value < self.options.ability_for_completion.value:
             self.options.abilities_in_pool.value = self.options.ability_for_completion.value
 
-        # Clamp pool sizes to total-1 so the player always has at least one
-        # available from the start (not locked behind AP progression)
-        max_weapons_pool = len(weapon_item_names) - 1   # 19
-        max_melee_pool = len(melee_item_names) - 1       # 4
-        max_ability_pool = len(ability_item_names) - 1    # 6
+        # Clamp pool sizes to the full equipment count.  A full pool leaves
+        # nothing unlocked at the start, so one random pool item of that
+        # category is precollected below to keep the player able to play.
+        max_weapons_pool = len(weapon_item_names)   # 20
+        max_melee_pool = len(melee_item_names)       # 5
+        max_ability_pool = len(ability_item_names)    # 7
         if self.options.weapons_in_pool.value > max_weapons_pool:
             self.options.weapons_in_pool.value = max_weapons_pool
         if self.options.melee_in_pool.value > max_melee_pool:
@@ -104,9 +110,11 @@ class CrabChampsWorld(World):
         if self.options.abilities_in_pool.value > max_ability_pool:
             self.options.abilities_in_pool.value = max_ability_pool
 
-        # When equipment_check_mode is disabled, non-pool equipment has no locations,
-        # so completion is limited to pool size. Otherwise the player can use all
-        # equipment (pool + non-pool) toward completion.
+        # Guard: when equipment_check_mode is disabled, non-pool equipment has
+        # no locations, so completion cannot exceed the pool size.  With the
+        # pool caps at the full equipment count this can no longer trigger
+        # (in_pool was already raised to >= for_completion above), but it is
+        # kept so the invariant survives any future range change.
         equip_mode = self.options.equipment_check_mode.value
         if equip_mode == 2:  # disabled
             if self.options.weapons_for_completion.value > self.options.weapons_in_pool.value:
@@ -139,11 +147,33 @@ class CrabChampsWorld(World):
         if self.options.starting_weapons.value > max_starting:
             self.options.starting_weapons.value = max_starting
 
+        # A full weapon pool leaves no weapon available at the start, so at
+        # least one pool weapon must be precollected.
+        if (self.options.weapons_in_pool.value == len(weapon_item_names)
+                and self.options.starting_weapons.value < 1):
+            self.options.starting_weapons.value = 1
+
         # Select and precollect starting weapons from the pool
+        self.starting_weapon_names = []
         if self.options.starting_weapons.value > 0:
-            starting = self.random.sample(self.pool_weapons, self.options.starting_weapons.value)
-            for weapon_name in starting:
+            self.starting_weapon_names = self.random.sample(
+                self.pool_weapons, self.options.starting_weapons.value
+            )
+            for weapon_name in self.starting_weapon_names:
                 self.multiworld.push_precollected(self.create_item(weapon_name))
+
+        # Melee/abilities have no starting-count option, so a full pool gets
+        # exactly one random precollected item for the same reason.
+        self.starting_melee = []
+        self.starting_abilities = []
+        if self.options.melee_in_pool.value == len(melee_item_names):
+            self.starting_melee = self.random.sample(self.pool_melee, 1)
+            for melee_name in self.starting_melee:
+                self.multiworld.push_precollected(self.create_item(melee_name))
+        if self.options.abilities_in_pool.value == len(ability_item_names):
+            self.starting_abilities = self.random.sample(self.pool_abilities, 1)
+            for ability_name in self.starting_abilities:
+                self.multiworld.push_precollected(self.create_item(ability_name))
 
         equip_mode = self.options.equipment_check_mode.value  # 0=regular, 1=filler_only, 2=disabled
         minimize = bool(self.options.minimize_run_checks.value)
@@ -511,11 +541,17 @@ class CrabChampsWorld(World):
         pickup_subsets = (
             self.pickup_subsets if self.options.limit_pickup_pool.value else None
         )
+        # Precollected equipment is already in the player's inventory, so it
+        # must not also occupy a slot in the item pool.
+        precollected_equipment = frozenset(
+            self.starting_weapon_names + self.starting_melee + self.starting_abilities
+        )
         remaining = location_count - slot_item_count
         pool = BuildItemPool(self.multiworld, remaining, self.options,
                              self.pool_weapons, self.pool_melee, self.pool_abilities,
                              exclude_names=exclude,
-                             pickup_subsets=pickup_subsets)
+                             pickup_subsets=pickup_subsets,
+                             skip_equipment=precollected_equipment)
         for item_data in pool:
             itempool.append(self.create_item(item_data.name))
 
@@ -666,13 +702,15 @@ class CrabChampsWorld(World):
                     pass
 
         # --- Victory rule ---
-        # The player must complete enough different equipment runs.
-        # Pool equipment requires the AP item (state.has); non-pool equipment
-        # is always available.  Island reachability requires no AP items
-        # (the player progresses through islands via normal gameplay).
-        n_non_pool_w = len(self.non_pool_weapons) if equip_mode != 2 else 0
-        n_non_pool_m = (len(self.non_pool_melee) if equip_mode != 2 else 0) if melee_needed > 0 else 0
-        n_non_pool_a = (len(self.non_pool_abilities) if equip_mode != 2 else 0) if abilities_needed > 0 else 0
+        # ONLY pool equipment counts toward completion.  Non-pool equipment is
+        # available from the start, so counting it would make the goal
+        # satisfiable without receiving a single AP item (e.g. 5 weapons for
+        # completion with 15 non-pool weapons was reachable from an empty
+        # state).  Non-pool equipment runs remain ordinary bonus locations —
+        # see equipment_check_mode — they just never advance the goal.
+        # generate_early guarantees *_for_completion <= *_in_pool, so the pool
+        # alone can always satisfy this rule.  Island reachability requires no
+        # AP items (the player progresses through islands via normal gameplay).
 
         # Snapshot pool lists for the closure
         pw = list(self.pool_weapons)
@@ -680,13 +718,12 @@ class CrabChampsWorld(World):
         pa = list(self.pool_abilities)
 
         def victory_rule(state, wn=weapons_needed, mn=melee_needed, an=abilities_needed,
-                         npw=n_non_pool_w, npm=n_non_pool_m, npa=n_non_pool_a,
                          _pw=pw, _pm=pm, _pa=pa):
-            if sum(1 for w in _pw if state.has(w, self.player)) + npw < wn:
+            if sum(1 for w in _pw if state.has(w, self.player)) < wn:
                 return False
-            if mn > 0 and sum(1 for m in _pm if state.has(m, self.player)) + npm < mn:
+            if mn > 0 and sum(1 for m in _pm if state.has(m, self.player)) < mn:
                 return False
-            if an > 0 and sum(1 for a in _pa if state.has(a, self.player)) + npa < an:
+            if an > 0 and sum(1 for a in _pa if state.has(a, self.player)) < an:
                 return False
             return True
 

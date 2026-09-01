@@ -217,66 +217,60 @@ function M.check_victory()
         return false
     end
 
-    -- Count completed weapon runs at final island on required rank
-    -- Pool weapons always count; non-pool count when equip_mode != disabled
-    local weapon_count = 0
-    for wname, _ in pairs(LocationData.pool_weapons) do
-        local loc_id = LocationData.weapon_run_location_id_by_name(final, wname, req_rank)
-        if loc_id and client:is_location_checked(loc_id) then
-            weapon_count = weapon_count + 1
+    --- Count completed runs at the final island on the required rank.
+    --- ONLY pool equipment counts.  Non-pool equipment is available from the
+    --- start, so counting it would let the goal be met without receiving a
+    --- single AP item.  Non-pool equipment runs are still ordinary location
+    --- checks (see equipment_check_mode) — they just never advance the goal.
+    ---@param pool_set table Set of pool equipment names (name -> true)
+    ---@param all_names table Ordered list of every name of this kind
+    ---@param needed number How many distinct runs the goal requires
+    ---@param loc_id_fn function (island, name, rank) -> location_id
+    local function count_completed_runs(pool_set, all_names, needed, loc_id_fn)
+        local count, pool_size = 0, 0
+        for name, _ in pairs(pool_set) do
+            pool_size = pool_size + 1
+            local loc_id = loc_id_fn(final, name, req_rank)
+            if loc_id and client:is_location_checked(loc_id) then
+                count = count + 1
+            end
         end
-    end
-    if equip_mode ~= 2 then
-        for _, wname in ipairs(LocationData.weapon_names) do
-            if not LocationData.is_pool_weapon(wname) then
-                local loc_id = LocationData.weapon_run_location_id_by_name(final, wname, req_rank)
-                if loc_id and client:is_location_checked(loc_id) then
-                    weapon_count = weapon_count + 1
+        -- Legacy seeds: before the pool caps were raised to the full
+        -- equipment count, a slot could require more runs than its pool
+        -- holds.  Those seeds are only beatable with non-pool runs, so keep
+        -- counting them there rather than bricking an in-progress game.
+        if needed > pool_size and equip_mode ~= 2 then
+            for _, name in ipairs(all_names) do
+                if not pool_set[name] then
+                    local loc_id = loc_id_fn(final, name, req_rank)
+                    if loc_id and client:is_location_checked(loc_id) then
+                        count = count + 1
+                    end
                 end
             end
         end
+        return count
     end
 
-    -- Count completed melee runs at final island on required rank
+    local weapon_count = count_completed_runs(
+        LocationData.pool_weapons, LocationData.weapon_names,
+        LocationData.weapons_for_completion,
+        LocationData.weapon_run_location_id_by_name)
+
     local melee_count = 0
     if LocationData.melee_for_completion > 0 then
-        for mname, _ in pairs(LocationData.pool_melee) do
-            local loc_id = LocationData.melee_run_location_id_by_name(final, mname, req_rank)
-            if loc_id and client:is_location_checked(loc_id) then
-                melee_count = melee_count + 1
-            end
-        end
-        if equip_mode ~= 2 then
-            for _, mname in ipairs(LocationData.melee_names) do
-                if not LocationData.is_pool_melee(mname) then
-                    local loc_id = LocationData.melee_run_location_id_by_name(final, mname, req_rank)
-                    if loc_id and client:is_location_checked(loc_id) then
-                        melee_count = melee_count + 1
-                    end
-                end
-            end
-        end
+        melee_count = count_completed_runs(
+            LocationData.pool_melee, LocationData.melee_names,
+            LocationData.melee_for_completion,
+            LocationData.melee_run_location_id_by_name)
     end
 
-    -- Count completed ability runs at final island on required rank
     local ability_count = 0
     if LocationData.ability_for_completion > 0 then
-        for aname, _ in pairs(LocationData.pool_abilities) do
-            local loc_id = LocationData.ability_run_location_id_by_name(final, aname, req_rank)
-            if loc_id and client:is_location_checked(loc_id) then
-                ability_count = ability_count + 1
-            end
-        end
-        if equip_mode ~= 2 then
-            for _, aname in ipairs(LocationData.ability_names) do
-                if not LocationData.is_pool_ability(aname) then
-                    local loc_id = LocationData.ability_run_location_id_by_name(final, aname, req_rank)
-                    if loc_id and client:is_location_checked(loc_id) then
-                        ability_count = ability_count + 1
-                    end
-                end
-            end
-        end
+        ability_count = count_completed_runs(
+            LocationData.pool_abilities, LocationData.ability_names,
+            LocationData.ability_for_completion,
+            LocationData.ability_run_location_id_by_name)
     end
 
     local w_needed = LocationData.weapons_for_completion

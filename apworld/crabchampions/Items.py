@@ -447,7 +447,8 @@ def select_pickup_subsets(rng, exclude_names: frozenset = frozenset()
 def BuildItemPool(multiworld, count, options,
                   pool_weapons=None, pool_melee=None, pool_abilities=None,
                   exclude_names=None,
-                  pickup_subsets=None) -> List[CrabChampsItemData]:
+                  pickup_subsets=None,
+                  skip_equipment=None) -> List[CrabChampsItemData]:
     """Build an item pool of exactly `count` items, respecting options.
 
     Pool construction order:
@@ -464,6 +465,11 @@ def BuildItemPool(multiworld, count, options,
     `pickup_subsets`: optional dict mapping category key (perk/weapon_mod/
     ability_mod/melee_mod/relic) -> list of allowed item names.  When provided,
     only those items participate in steps 3-5; other pickups are not added.
+
+    `skip_equipment`: optional set of pool equipment names the player already
+    holds (precollected starting equipment).  These are left out of step 2 so
+    the player is not sent a second copy of something they start with; the
+    freed slots go to filler in the final step.
     """
     if pool_weapons is None:
         pool_weapons = []
@@ -473,6 +479,8 @@ def BuildItemPool(multiworld, count, options,
         pool_abilities = []
     if exclude_names is None:
         exclude_names = frozenset()
+    if skip_equipment is None:
+        skip_equipment = frozenset()
 
     # Resolve which pickup items are eligible.  When subsets are provided,
     # only items in the subset for each category are eligible.
@@ -496,8 +504,12 @@ def BuildItemPool(multiworld, count, options,
             if item_name in item_dictionary and item_name not in exclude_names:
                 _add(item_dictionary[item_name])
 
-    # 2. Pool equipment: only the randomly-selected subset becomes AP items
+    # 2. Pool equipment: only the randomly-selected subset becomes AP items.
+    #    Precollected starting equipment is skipped — the player already has
+    #    it, so a second copy would waste a location on a no-op item.
     for name in pool_weapons + pool_melee + pool_abilities:
+        if name in skip_equipment:
+            continue
         if name not in pool_names:
             _add(item_dictionary[name])
 

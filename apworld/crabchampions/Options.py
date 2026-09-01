@@ -52,6 +52,11 @@ class WeaponsForCompletion(Range):
     final island five separate times, each with a different weapon, all at
     Required Rank or higher.
 
+    Only weapons in the AP pool count toward this.  Weapons you have from
+    the start can still generate location checks (see Equipment Check
+    Mode), but they never advance the goal.  Weapons in Pool is raised to
+    match this value when it is lower.
+
     Capped at the total number of weapons in the game (20)."""
     display_name = "Weapons for Completion"
     range_start = 1
@@ -100,11 +105,12 @@ class WeaponsInPool(Range):
     Example: pool=5, for_completion=3 means 5 weapons are AP items, all 5
     have location checks, but only 3 distinct ones must be used to win.
 
-    Must be >= Weapons for Completion (auto-clamped).  Capped at 19 so you
-    always start with at least one usable weapon."""
+    Must be >= Weapons for Completion (auto-clamped).  Set to 20 to put
+    every weapon in the pool - Starting Weapons is then forced to at least
+    1 so you always begin with something usable."""
     display_name = "Weapons in Pool"
     range_start = 1
-    range_end = 19
+    range_end = 20
     default = 5
 
 
@@ -113,11 +119,12 @@ class MeleeInPool(Range):
     items.  See Weapons in Pool for the full mechanic.
 
     Must be >= Melee for Completion (auto-clamped).  Forced to 0 when
-    Melee for Completion is 0.  Capped at 4 so you always start with at
-    least one melee available."""
+    Melee for Completion is 0.  Set to 5 to put every melee weapon in the
+    pool - one random pool melee is then added to your starting inventory
+    so you always begin with something usable."""
     display_name = "Melee in Pool"
     range_start = 0
-    range_end = 4
+    range_end = 5
     default = 0
 
 
@@ -126,11 +133,12 @@ class AbilitiesInPool(Range):
     See Weapons in Pool for the full mechanic.
 
     Must be >= Abilities for Completion (auto-clamped).  Forced to 0 when
-    Abilities for Completion is 0.  Capped at 6 so you always start with
-    at least one ability available."""
+    Abilities for Completion is 0.  Set to 7 to put every ability in the
+    pool - one random pool ability is then added to your starting
+    inventory so you always begin with something usable."""
     display_name = "Abilities in Pool"
     range_start = 0
-    range_end = 6
+    range_end = 7
     default = 0
 
 
@@ -140,8 +148,14 @@ class StartingWeapons(Range):
     you can start working on equipment-run checks immediately without
     waiting to receive a weapon from another player.
 
+    A weapon you start with is removed from the item pool rather than
+    duplicated, so its slot goes to filler instead of a second copy of
+    something you already hold.
+
     Must be < Weapons in Pool (at least one weapon must still be findable
-    via AP).  Set to 0 to start with no pool weapons unlocked."""
+    via AP).  Set to 0 to start with no pool weapons unlocked - except
+    when Weapons in Pool is 20, where this is forced to at least 1 because
+    no weapon would otherwise be available at the start."""
     display_name = "Starting Weapons"
     range_start = 0
     range_end = 19
@@ -153,6 +167,11 @@ class EquipmentCheckMode(Choice):
     run-completion location checks.  (Pool equipment ALWAYS has checks -
     this option is only about non-pool items, which are available from
     the start.)
+
+    These are bonus locations only.  Non-pool equipment NEVER counts
+    toward Weapons/Melee/Abilities for Completion, no matter which mode
+    is picked - otherwise the goal could be met without receiving a
+    single AP item.
 
     regular:
         Non-pool equipment runs are normal location checks that can hold
