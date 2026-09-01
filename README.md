@@ -80,7 +80,9 @@ How many islands you must complete for a single run to count as finished. The ga
 #### `weapons_for_completion` (Default: 5, Range: 1–20)
 How many different weapons you must complete a run with for victory. Each weapon requires its own full run.
 
-> **Example:** With `weapons_for_completion: 3`, you need to finish 3 separate runs, each with a different weapon equipped, before you can win.
+**Only weapons in the AP pool count.** Weapons you have available from the start never advance the goal, even when `equipment_check_mode` gives them their own location checks. `weapons_in_pool` is automatically raised to match this value when it is lower, so the goal is always satisfiable from pool weapons alone. The same rule applies to `melee_for_completion` and `ability_for_completion`.
+
+> **Example:** With `weapons_for_completion: 3`, you need to finish 3 separate runs, each with a different **pool** weapon equipped, before you can win.
 
 #### `melee_for_completion` (Default: 3, Range: 0–5)
 How many different melee weapons you must complete a run with for victory. Set to **0** to disable melee completion requirements entirely (no melee location checks are generated).
@@ -98,25 +100,27 @@ How many different abilities you must complete a run with for victory. Set to **
 
 These options control which equipment is randomized into the Archipelago item pool and how equipment-based location checks work.
 
-#### `weapons_in_pool` (Default: 5, Range: 1–19)
+#### `weapons_in_pool` (Default: 5, Range: 1–20)
 How many weapons are randomly selected and locked behind the AP item pool. You must receive these weapons from other players (or yourself) before you can use them. **Each weapon in the pool creates its own run-completion location check**, even if `weapons_for_completion` is lower.
 
-Capped at 19 so you always have at least one weapon available from the start.
+Set to 20 to put every weapon in the pool. In that case `starting_weapons` is forced to at least 1, so one random pool weapon is added to your starting inventory and you always begin with something usable.
 
 > **Example:** With `weapons_in_pool: 5` and `weapons_for_completion: 3`, five specific weapons (e.g., Auto Rifle, Rocket Launcher, Arcane Wand, Blade Launcher, Railgun) are locked behind AP items. Each of those 5 weapons generates a "Complete a run with [Weapon]" location check — that's **5 location checks total**. However, you only need to complete runs with any **3** of them to satisfy the victory condition.
 
-#### `melee_in_pool` (Default: 0, Range: 0–4)
-How many melee weapons are locked behind the AP item pool. **Each melee weapon in the pool creates its own run-completion location check**, even if `melee_for_completion` is lower. Forced to 0 when `melee_for_completion` is 0. Capped at 4 so you always have at least one melee weapon available.
+#### `melee_in_pool` (Default: 0, Range: 0–5)
+How many melee weapons are locked behind the AP item pool. **Each melee weapon in the pool creates its own run-completion location check**, even if `melee_for_completion` is lower. Forced to 0 when `melee_for_completion` is 0. Set to 5 to put every melee weapon in the pool — one random pool melee is then added to your starting inventory so you always begin with something usable.
 
 > **Example:** With `melee_in_pool: 3` and `melee_for_completion: 1`, three melee weapons (e.g., Katana, Hammer, Dagger) are locked. All 3 generate location checks ("Complete a run with Katana", "Complete a run with Hammer", "Complete a run with Dagger"), but you only need to complete a run with **1** of them to win.
 
-#### `abilities_in_pool` (Default: 0, Range: 0–6)
-How many abilities are locked behind the AP item pool. **Each ability in the pool creates its own run-completion location check**, even if `ability_for_completion` is lower. Forced to 0 when `ability_for_completion` is 0. Capped at 6 so you always have at least one ability available.
+#### `abilities_in_pool` (Default: 0, Range: 0–7)
+How many abilities are locked behind the AP item pool. **Each ability in the pool creates its own run-completion location check**, even if `ability_for_completion` is lower. Forced to 0 when `ability_for_completion` is 0. Set to 7 to put every ability in the pool — one random pool ability is then added to your starting inventory so you always begin with something usable.
 
 > **Example:** With `abilities_in_pool: 4` and `ability_for_completion: 2`, four abilities (e.g., Grenade, Black Hole, Ice Blast, Laser Beam) are locked. All 4 generate location checks, but only **2** must be completed for victory.
 
 #### `starting_weapons` (Default: 0, Range: 0–19)
-How many of your pool weapons you start with already unlocked. These are randomly selected from your pool and given to you immediately, so you can start working on equipment run checks right away. Must be less than `weapons_in_pool`.
+How many of your pool weapons you start with already unlocked. These are randomly selected from your pool and given to you immediately, so you can start working on equipment run checks right away. Must be less than `weapons_in_pool`. Forced to at least 1 when `weapons_in_pool` is 20, since no weapon would otherwise be available at the start.
+
+A weapon you start with is removed from the item pool rather than duplicated — its slot goes to filler instead of a second copy of something you already hold.
 
 > **Example:** With `weapons_in_pool: 5` and `starting_weapons: 2`, you begin the game with 2 of your 5 pool weapons already unlocked and need to find the other 3 through AP.
 
@@ -127,6 +131,10 @@ Controls how **non-pool** equipment run locations behave. Equipment that is in t
 - **disabled** — Non-pool equipment does not create any location checks at all.
 
 > **Example:** If you have 5 weapons in the pool and 15 not in the pool, with `equipment_check_mode: disabled`, only the 5 pool weapons generate run-completion checks. With `equipment_check_mode: regular`, all 20 weapons generate checks.
+
+> **Note:** These are bonus locations only — non-pool equipment runs never count toward `weapons_for_completion`, `melee_for_completion`, or `ability_for_completion`.
+
+> **Note:** This option has no effect on a category whose pool holds every item (`weapons_in_pool: 20`, `melee_in_pool: 5`, `abilities_in_pool: 7`) — there is no non-pool equipment left for it to act on.
 
 ---
 
