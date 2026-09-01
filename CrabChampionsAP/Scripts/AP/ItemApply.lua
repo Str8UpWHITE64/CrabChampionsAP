@@ -49,8 +49,15 @@ M.in_lobby = true
 local spawn_queue = {}
 local spawn_busy = false
 
--- Queue for C++ mod items waiting to be applied in batch
-local cpp_pending_queue = {}
+--- A pending-item aggregate: `list` holds one entry per item name in arrival
+--- order, `index` maps name -> entry so later copies merge into the stack
+--- already waiting instead of queueing behind everything received in between.
+local function new_aggregate()
+    return { list = {}, index = {} }
+end
+
+-- Received C++ mod items waiting to be applied, aggregated by item name.
+local cpp_pending = new_aggregate()
 local cpp_flush_scheduled = false
 
 -- Per-type overflow queues for items that failed due to full inventory.
@@ -62,6 +69,17 @@ local cpp_overflow_queues = {
     MeleeMods = {},
     AbilityMods = {},
 }
+
+-- Fixed iteration order so the work list is deterministic across flushes.
+local CPP_QUEUE_NAMES = { "Perks", "Relics", "WeaponMods", "MeleeMods", "AbilityMods" }
+
+-- Set while an overflow retry owns the overflow queues.
+local overflow_retry_running = false
+
+-- Crystal batching state. Declared up here so M.reset() clears these rather
+-- than creating same-named globals.
+local crystal_pending = 0
+local crystal_flush_scheduled = false
 
 -------------------------------------------------------------
 -- Reset: clear all state for a fresh connection
@@ -79,7 +97,7 @@ function M.reset()
     M.in_lobby = true
 
     -- Clear all queues
-    cpp_pending_queue = {}
+    cpp_pending = new_aggregate()
     cpp_flush_scheduled = false
     spawn_queue = {}
     spawn_busy = false
@@ -398,84 +416,108 @@ end
 local FLUSH_BATCH_SIZE = 20       -- items per chunk
 local FLUSH_BATCH_DELAY_MS = 100  -- ms pause between chunks
 
---- Flush all pending C++ items in small batches to avoid overwhelming
---- the engine. Each batch applies up to FLUSH_BATCH_SIZE items, then
---- pauses before the next batch. Items whose inventory type is already
---- full are sent straight to overflow without a C++ call.
---- Merge duplicate items in a list: same name items get combined into one
---- entry with a higher count. Preserves order of first occurrence.
---- Relics are never merged (they don't stack).
-local function merge_duplicates(items)
-    local CAT = ItemData.CATEGORY
-    local merged = {}
-    local seen = {}  -- name -> index in merged
+--- Add `count` copies of an item to an aggregate, merging into the existing
+--- entry for that name. Relics never merge — they don't stack in-game.
+local function aggregate_add(agg, info, count)
+    count = count or 1
+    local stackable = info.cat ~= ItemData.CATEGORY.RELIC
+    local entry = stackable and agg.index[info.name] or nil
+    if entry then
+        entry.count = entry.count + count
+        return
+    end
+    entry = { info = info, count = count }
+    table.insert(agg.list, entry)
+    if stackable then
+        agg.index[info.name] = entry
+    end
+end
 
-    for _, info in ipairs(items) do
-        -- Relics don't stack — always separate entries
-        local is_relic = info.cat == CAT.RELIC
-        if not is_relic and seen[info.name] then
-            merged[seen[info.name]].count = merged[seen[info.name]].count + 1
-        else
-            local entry = { info = info, count = 1 }
-            table.insert(merged, entry)
-            if not is_relic then
-                seen[info.name] = #merged
+--- Build the list of stacks to apply: everything already waiting on a free
+--- slot, then everything newly received, folded into one entry per item name.
+--- Overflowed items lead because they arrived first. This is what makes
+--- "10x Perk A, 10 other perks, 2x Perk A" apply as 12x Perk A and then the
+--- rest, instead of leaving the last two stuck behind a full inventory.
+local function build_work_list(include_overflow)
+    local agg = new_aggregate()
+    if include_overflow then
+        for _, queue_name in ipairs(CPP_QUEUE_NAMES) do
+            local queue = cpp_overflow_queues[queue_name]
+            if queue then
+                for _, info in ipairs(queue) do
+                    aggregate_add(agg, info, 1)
+                end
+                cpp_overflow_queues[queue_name] = {}
             end
         end
     end
-
-    return merged
+    for _, entry in ipairs(cpp_pending.list) do
+        aggregate_add(agg, entry.info, entry.count)
+    end
+    cpp_pending = new_aggregate()
+    return agg.list
 end
 
-local function flush_cpp_queue()
-    cpp_flush_scheduled = false
-    if #cpp_pending_queue == 0 then return end
+--- Full names currently in the player's inventory. A stackable item is a
+--- single array entry with a level count, so one that is already there needs
+--- no free slot and can still be applied when its type is full.
+local function inventory_present_set()
+    local present = {}
+    local ok, InvSan = pcall(require, "AP/InventorySanitize")
+    if not ok or not InvSan or not InvSan.build_inventory_snapshot then return present end
+    local ps = M._get_ps()
+    if not ps then return present end
+    local snap = safe(function() return InvSan.build_inventory_snapshot(ps) end, nil)
+    if not snap then return present end
+    for _, bucket in pairs(snap) do
+        for full_name, _ in pairs(bucket) do
+            present[full_name] = true
+        end
+    end
+    return present
+end
 
-    local raw_items = cpp_pending_queue
-    cpp_pending_queue = {}
-
-    -- Merge duplicates: e.g. 5x Driller becomes one call with count=5
-    local items = merge_duplicates(raw_items)
-    log("Flushing " .. #raw_items .. " queued items (" .. #items .. " unique) via C++ mod (batch size " .. FLUSH_BATCH_SIZE .. ")...")
-
-    -- Track which inventory types are known-full so we can skip C++ calls
+--- Apply a work list in rate-limited chunks to avoid overwhelming the engine.
+--- Stacks whose inventory type has no free slots go back to overflow without a
+--- C++ call, unless the item is already in the inventory and only needs a
+--- level bump. Calls on_done(applied, overflowed) once the list is drained.
+local function process_work_list(work, batch_size, delay_ms, on_done)
+    local present = inventory_present_set()
     local known_full = {}
-
-    local applied = 0
-    local overflowed = 0
+    local applied, overflowed = 0, 0
     local idx = 1
 
+    local function to_overflow(info, count, queue_key)
+        local queue = cpp_overflow_queues[queue_key]
+        if queue then
+            for _ = 1, count do
+                table.insert(queue, info)
+            end
+        end
+        overflowed = overflowed + count
+    end
+
     local function process_batch()
-        local batch_end = math.min(idx + FLUSH_BATCH_SIZE - 1, #items)
+        local batch_end = math.min(idx + batch_size - 1, #work)
         local batch_applied = 0
 
         for i = idx, batch_end do
-            local entry = items[i]
-            local info = entry.info
-            local count = entry.count
+            local entry = work[i]
+            local info, count = entry.info, entry.count
             local arr_info = get_cpp_array_info(info.cat)
             local queue_key = arr_info and arr_info[1] or "Perks"
+            local stacks = info.cat ~= ItemData.CATEGORY.RELIC and present[info.full_name]
 
-            -- Skip C++ call if this inventory type is already full
-            if known_full[queue_key] then
-                if cpp_overflow_queues[queue_key] then
-                    for j = 1, count do
-                        table.insert(cpp_overflow_queues[queue_key], info)
-                    end
-                end
-                overflowed = overflowed + count
+            if known_full[queue_key] and not stacks then
+                to_overflow(info, count, queue_key)
             elseif cpp_add_item(info, count) then
                 applied = applied + count
                 batch_applied = batch_applied + 1
+                present[info.full_name] = true
             else
                 -- Mark this type as full so we stop hammering C++
                 known_full[queue_key] = true
-                if cpp_overflow_queues[queue_key] then
-                    for j = 1, count do
-                        table.insert(cpp_overflow_queues[queue_key], info)
-                    end
-                end
-                overflowed = overflowed + count
+                to_overflow(info, count, queue_key)
             end
         end
 
@@ -485,124 +527,67 @@ local function flush_cpp_queue()
         end
 
         idx = batch_end + 1
-        if idx <= #items then
-            -- More items remaining — schedule next batch after delay
-            LoopAsync(FLUSH_BATCH_DELAY_MS, function()
+        if idx <= #work then
+            -- More stacks remaining — schedule next batch after delay
+            LoopAsync(delay_ms, function()
                 process_batch()
                 return true  -- run once
             end)
         else
             -- All done — sanitize to clean up any race condition artifacts
             sanitize_inventory()
-            local total_overflow = M.overflow_count()
-            if overflowed > 0 then
-                log("Batch complete: " .. applied .. " applied, " .. overflowed .. " waiting for free slots (" .. total_overflow .. " total overflow)")
-            else
-                log("Batch complete: " .. applied .. " applied")
-            end
+            on_done(applied, overflowed)
         end
     end
 
     process_batch()
 end
 
-local OVERFLOW_BATCH_SIZE = 10       -- items per chunk during overflow retry
-local OVERFLOW_BATCH_DELAY_MS = 150  -- ms pause between overflow chunks
-local overflow_retry_running = false -- prevent overlapping retries
+--- Flush everything waiting into the inventory, in rate-limited batches.
+local function flush_cpp_queue()
+    cpp_flush_scheduled = false
 
---- Retry overflow queue items across all inventory types.
---- Each type retries independently so a full perk inventory doesn't block weapon mods.
---- Processes in small batches to avoid overwhelming the engine.
---- Merge overflow queue entries by name within each queue type.
---- Returns a flat work list with merged counts and queue tags.
-local function merge_overflow_queues()
-    local CAT = ItemData.CATEGORY
-    local work = {}
+    -- Leave the overflow queues alone while a retry owns them.
+    local work = build_work_list(not overflow_retry_running)
+    if #work == 0 then return end
 
-    for queue_name, queue in pairs(cpp_overflow_queues) do
-        -- Merge duplicates within this queue
-        local seen = {}  -- name -> index in merged
-        local merged = {}
-        for _, info in ipairs(queue) do
-            local is_relic = info.cat == CAT.RELIC
-            if not is_relic and seen[info.name] then
-                merged[seen[info.name]].count = merged[seen[info.name]].count + 1
-            else
-                local entry = { queue_name = queue_name, info = info, count = 1 }
-                table.insert(merged, entry)
-                if not is_relic then
-                    seen[info.name] = #merged
-                end
-            end
+    log("Flushing " .. #work .. " item stacks via C++ mod (batch size " .. FLUSH_BATCH_SIZE .. ")...")
+    process_work_list(work, FLUSH_BATCH_SIZE, FLUSH_BATCH_DELAY_MS, function(applied, overflowed)
+        if overflowed > 0 then
+            log("Batch complete: " .. applied .. " applied, " .. overflowed
+                .. " waiting for free slots (" .. M.overflow_count() .. " total overflow)")
+        else
+            log("Batch complete: " .. applied .. " applied")
         end
-
-        for _, entry in ipairs(merged) do
-            table.insert(work, entry)
-        end
-        cpp_overflow_queues[queue_name] = {}
-    end
-
-    return work
+    end)
 end
 
+local OVERFLOW_BATCH_SIZE = 10       -- items per chunk during overflow retry
+local OVERFLOW_BATCH_DELAY_MS = 150  -- ms pause between overflow chunks
+
+--- Retry everything waiting on a free slot, at a gentler cadence than a
+--- normal flush since this runs mid-run. Newly received items are folded in
+--- too, so a duplicate that arrived since the overflow is applied as part of
+--- the same stack rather than on its own afterwards.
 function M.retry_overflow()
     if M.overflow_count() == 0 then return end
     if not has_cpp_mod() then return end
     if overflow_retry_running then return end  -- already in progress
     overflow_retry_running = true
 
-    -- Merge duplicates within each overflow queue before retrying
-    local work = merge_overflow_queues()
-
-    local known_full = {}
-    local total_applied = 0
-    local idx = 1
-
-    local function process_batch()
-        local batch_end = math.min(idx + OVERFLOW_BATCH_SIZE - 1, #work)
-        local batch_applied = 0
-
-        for i = idx, batch_end do
-            local entry = work[i]
-            local qn = entry.queue_name
-            local count = entry.count
-
-            if known_full[qn] then
-                -- Put back as individual items for future retry
-                for j = 1, count do
-                    table.insert(cpp_overflow_queues[qn], entry.info)
-                end
-            elseif cpp_add_item(entry.info, count) then
-                batch_applied = batch_applied + 1
-                total_applied = total_applied + count
-            else
-                known_full[qn] = true
-                for j = 1, count do
-                    table.insert(cpp_overflow_queues[qn], entry.info)
-                end
-            end
-        end
-
-        if batch_applied > 0 then
-            pcall(AP_RefreshInventoryUI)
-        end
-
-        idx = batch_end + 1
-        if idx <= #work then
-            LoopAsync(OVERFLOW_BATCH_DELAY_MS, function()
-                process_batch()
-                return true  -- run once
-            end)
-        else
-            overflow_retry_running = false
-            sanitize_inventory()
-            if total_applied > 0 then
-                log("Overflow retry complete: " .. total_applied .. " applied, " .. M.overflow_count() .. " still waiting")
-            end
-        end
+    local work = build_work_list(true)
+    if #work == 0 then
+        overflow_retry_running = false
+        return
     end
 
-    process_batch()
+    process_work_list(work, OVERFLOW_BATCH_SIZE, OVERFLOW_BATCH_DELAY_MS, function(applied)
+        overflow_retry_running = false
+        if applied > 0 then
+            log("Overflow retry complete: " .. applied .. " applied, "
+                .. M.overflow_count() .. " still waiting")
+        end
+    end)
 end
 
 --- Get the total number of items waiting across all overflow queues.
@@ -617,7 +602,7 @@ end
 --- Queue an item for batch C++ application.
 --- Schedules a flush after a short delay so rapid-fire items are batched.
 local function queue_cpp_item(info)
-    table.insert(cpp_pending_queue, info)
+    aggregate_add(cpp_pending, info, 1)
     if not cpp_flush_scheduled then
         cpp_flush_scheduled = true
         LoopAsync(200, function()
@@ -629,9 +614,8 @@ end
 
 -------------------------------------------------------------
 -- Crystal batching: accumulate crystal amounts and grant once
+-- (state is declared at the top of the file so M.reset() clears it)
 -------------------------------------------------------------
-local crystal_pending = 0
-local crystal_flush_scheduled = false
 
 local function flush_crystals()
     crystal_flush_scheduled = false
@@ -849,7 +833,7 @@ function M.reapply_run_items()
                     queue_spawn(item.da, item.name, item.full_name)
                 end
             elseif item.da and item.cat then
-                table.insert(cpp_pending_queue, item)
+                aggregate_add(cpp_pending, item, 1)
             elseif item.da then
                 queue_spawn(item.da, item.name, item.full_name)
             else
