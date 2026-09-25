@@ -452,8 +452,8 @@ def BuildItemPool(multiworld, count, options,
     """Build an item pool of exactly `count` items, respecting options.
 
     Pool construction order:
-      1. Guaranteed items (from options)
-      2. Pool equipment: weapons, melee, abilities selected for AP randomization
+      1. Pool equipment: weapons, melee, abilities selected for AP randomization
+      2. Guaranteed items (from options)
       3. Relics (one copy each — relics don't stack)
       4. One copy of every stackable item (perks, weapon mods, melee mods)
       5. Distribute remaining slots evenly across stackable items
@@ -467,7 +467,7 @@ def BuildItemPool(multiworld, count, options,
     only those items participate in steps 3-5; other pickups are not added.
 
     `skip_equipment`: optional set of pool equipment names the player already
-    holds (precollected starting equipment).  These are left out of step 2 so
+    holds (precollected starting equipment).  These are left out of step 1 so
     the player is not sent a second copy of something they start with; the
     freed slots go to filler in the final step.
     """
@@ -498,13 +498,8 @@ def BuildItemPool(multiworld, count, options,
         item_pool.append(item)
         pool_names.append(item.name)
 
-    # 1. Guaranteed items from options
-    if options.guaranteed_items.value:
-        for item_name in options.guaranteed_items.value:
-            if item_name in item_dictionary and item_name not in exclude_names:
-                _add(item_dictionary[item_name])
-
-    # 2. Pool equipment: only the randomly-selected subset becomes AP items.
+    # 1. Pool equipment: only the randomly-selected subset becomes AP items.
+    #    Added first so the final trim can never drop progression.
     #    Precollected starting equipment is skipped — the player already has
     #    it, so a second copy would waste a location on a no-op item.
     for name in pool_weapons + pool_melee + pool_abilities:
@@ -513,7 +508,21 @@ def BuildItemPool(multiworld, count, options,
         if name not in pool_names:
             _add(item_dictionary[name])
 
-    # 4. Relics — one copy each (they don't stack).
+    # 2. Guaranteed items from options, at the requested copy count.  Only
+    #    stackable items take extra copies; relics and equipment are unique.
+    stackable_names = {item.name for item in _stackable_items}
+    for item_name, copies in options.guaranteed_items.value.items():
+        item = item_dictionary.get(item_name)
+        if item is None or item_name in exclude_names:
+            continue
+        if item_name not in stackable_names:
+            if item_name not in pool_names:
+                _add(item)
+            continue
+        for _ in range(max(0, int(copies))):
+            _add(item)
+
+    # 3. Relics — one copy each (they don't stack).
     #    Skip relics not in the chosen subset when limited.
     for item in _relic_items:
         if item.name in pool_names or item.name in exclude_names:
@@ -522,7 +531,7 @@ def BuildItemPool(multiworld, count, options,
             continue
         _add(item)
 
-    # 5. One copy of every stackable item not yet in pool.
+    # 4. One copy of every stackable item not yet in pool.
     #    Skip stackable items not in the chosen subset when limited.
     for item in _stackable_items:
         if item.name in pool_names or item.name in exclude_names:
@@ -533,7 +542,7 @@ def BuildItemPool(multiworld, count, options,
 
     remaining = count - len(item_pool)
 
-    # 6. Split remaining slots between Crystal Cache filler and extra stackable items.
+    # 5. Split remaining slots between Crystal Cache filler and extra stackable items.
     #    crystal_cache_percentage controls the ratio (default 50%).
     crystal_pct = getattr(options, 'crystal_cache_percentage', None)
     crystal_pct = crystal_pct.value if crystal_pct is not None else 50

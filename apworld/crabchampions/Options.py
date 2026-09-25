@@ -435,7 +435,9 @@ class GuaranteedItemsOption(ItemDict):
         Time Bolt: 2
 
     Useful for ensuring favorite items end up randomized.  Item names
-    must match exactly (case-sensitive)."""
+    must match exactly (case-sensitive).  Only stackable items (perks and
+    mods) take extra copies; relics and equipment are unique, so they get
+    one copy whatever the count."""
     display_name = "Guaranteed Items"
 
 
