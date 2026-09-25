@@ -1151,97 +1151,140 @@ RegisterKeyBind(Key.F2, function()
     end)
 end)
 
--- F9: Dump all pickup DA tags and requirements to file
+-- F9: Dump every pickup DA to a timestamped file: asset and display name,
+-- rarity (greed is a rarity), loot pool and pickup tag. Used when porting a
+-- new game build, so it also flags items the client doesn't know yet and
+-- prints every tag ID it finds rather than a fixed range.
 RegisterKeyBind(Key.F9, function()
     LoopAsync(1, function()
-        log("=== DUMPING PICKUP TAGS ===")
+        log("=== DUMPING PICKUP DATA ===")
         if not ItemData.is_resolved() then ItemData.resolve_game_objects() end
 
+        -- Enum names from the public build's header dump. IDs missing here are
+        -- printed as numbers, so values added in a newer build still show up.
         local TAG_NAMES = {
             [0] = "None", [1] = "Healing", [2] = "DamageOverTime", [3] = "Critical",
             [4] = "Speed", [5] = "Bounce", [6] = "Ice", [7] = "Fire",
             [8] = "Lightning", [9] = "Poison", [10] = "Arcane", [11] = "Turret",
             [12] = "Combo", [13] = "GlueShot", [14] = "Charger",
         }
+        local RARITY_NAMES = {
+            [0] = "None", [1] = "Common", [2] = "Epic", [3] = "Legendary", [4] = "Greed",
+        }
+        local GREED = 4
 
-        local lines = {}
-        lines[#lines + 1] = "=== PICKUP TAG DUMP ==="
-        lines[#lines + 1] = ""
+        local function label(names, id)
+            return (names[id] or "?") .. " (" .. id .. ")"
+        end
 
-        -- Items that PROVIDE a tag (tag providers)
-        local providers = {}  -- tag_id -> list of item names
-        -- Items that REQUIRE a matching tag
-        local requirers = {}  -- tag_id -> list of item names
+        -- Same normalisation ItemData uses to match item names to DAs.
+        local function name_key(name)
+            return (name:gsub("%s*%b()%s*$", ""):gsub("'", ""):gsub("%s+", ""):lower())
+        end
+        local known = {}
+        for _, entry in pairs(ItemData.BY_CC_CODE) do
+            known[name_key(entry.name)] = true
+        end
 
-        local classes = {
-            "CrabPerkDA", "CrabRelicDA", "CrabWeaponModDA",
-            "CrabMeleeModDA", "CrabAbilityModDA",
+        local CLASSES = {
+            "CrabPerkDA", "CrabRelicDA", "CrabWeaponModDA", "CrabMeleeModDA",
+            "CrabAbilityModDA", "CrabWeaponDA", "CrabAbilityDA", "CrabMeleeDA",
         }
 
-        for _, class_name in ipairs(classes) do
-            local all = FindAllOf(class_name)
-            if all then
-                for _, da in ipairs(all) do
-                    pcall(function()
-                        if not da or not da:IsValid() then return end
-                        local name = da.Name or "?"
-                        local tag = tonumber(da.PickupTag) or 0
-                        local requires = da.bRequiresMatchingPickupTag
+        local rows_by_class = {}
+        local providers, requirers, tag_ids = {}, {}, {}
+        local new_items, greed_items = {}, {}
+        local total = 0
 
-                        if type(name) ~= "string" then
-                            pcall(function() name = name:ToString() end)
-                        end
-                        name = tostring(name)
+        for _, class_name in ipairs(CLASSES) do
+            local rows = {}
+            rows_by_class[class_name] = rows
+            for _, da in ipairs(FindAllOf(class_name) or {}) do
+                pcall(function()
+                    if not da or not da:IsValid() then return end
+                    local full = tostring(da:GetFullName())
+                    local asset = full:match("%.([^%.]+)$") or full
+                    local display = da.Name
+                    if type(display) ~= "string" then
+                        pcall(function() display = display:ToString() end)
+                    end
+                    display = tostring(display)
 
-                        local tag_name = TAG_NAMES[tag] or tostring(tag)
+                    local tag = tonumber(da.PickupTag) or 0
+                    local requires = da.bRequiresMatchingPickupTag and true or false
+                    local rarity = tonumber(da.Rarity) or 0
+                    local loot_pool = tonumber(da.LootPool) or 0
+                    local is_new = not known[(asset:match("^DA_%w+_(.+)$") or asset):lower()]
+                    local who = display .. " [" .. asset .. "] (" .. class_name .. ")"
 
-                        if tag > 0 and not requires then
-                            if not providers[tag] then providers[tag] = {} end
-                            table.insert(providers[tag], name .. " (" .. class_name .. ")")
-                        end
+                    rows[#rows + 1] = string.format(
+                        "  %-38s | %-26s | rarity %-15s | loot pool %-3d | tag %-18s%s%s",
+                        asset, display, label(RARITY_NAMES, rarity), loot_pool,
+                        label(TAG_NAMES, tag), requires and " REQUIRES" or "",
+                        is_new and "  NEW" or "")
+                    total = total + 1
 
-                        if requires then
-                            if not requirers[tag] then requirers[tag] = {} end
-                            table.insert(requirers[tag], name .. " (" .. class_name .. ")")
-                        end
-                    end)
+                    if is_new then new_items[#new_items + 1] = who end
+                    if rarity == GREED then greed_items[#greed_items + 1] = who end
+                    if requires then
+                        requirers[tag] = requirers[tag] or {}
+                        table.insert(requirers[tag], who)
+                        tag_ids[tag] = true
+                    elseif tag > 0 then
+                        providers[tag] = providers[tag] or {}
+                        table.insert(providers[tag], who)
+                        tag_ids[tag] = true
+                    end
+                end)
+            end
+            table.sort(rows)
+        end
+
+        local lines = {}
+        local function add(s) lines[#lines + 1] = s end
+        local function add_list(title, list)
+            table.sort(list)
+            add("=== " .. title .. ": " .. #list .. " ===")
+            for _, s in ipairs(list) do add("  " .. s) end
+            add("")
+        end
+
+        add("=== PICKUP DATA DUMP ===")
+        add("Taken " .. os.date("%Y-%m-%d %H:%M:%S") .. ", " .. total .. " DAs")
+        add("")
+        add_list("NEW (not in ItemData.lua)", new_items)
+        add_list("GREED (rarity Greed)", greed_items)
+
+        add("=== PICKUP TAGS ===")
+        local sorted_tags = {}
+        for id in pairs(tag_ids) do sorted_tags[#sorted_tags + 1] = id end
+        table.sort(sorted_tags)
+        for _, id in ipairs(sorted_tags) do
+            add("--- Tag: " .. label(TAG_NAMES, id) .. " ---")
+            for _, group in ipairs({ { "PROVIDES", providers[id] }, { "REQUIRES", requirers[id] } }) do
+                if group[2] then
+                    table.sort(group[2])
+                    add("  " .. group[1] .. " this tag:")
+                    for _, s in ipairs(group[2]) do add("    " .. s) end
                 end
             end
         end
+        add("")
 
-        -- Format output grouped by tag
-        for tag_id = 0, 14 do
-            local tag_name = TAG_NAMES[tag_id] or tostring(tag_id)
-            local provs = providers[tag_id]
-            local reqs = requirers[tag_id]
-
-            if provs or reqs then
-                lines[#lines + 1] = "--- Tag: " .. tag_name .. " (" .. tag_id .. ") ---"
-                if provs then
-                    lines[#lines + 1] = "  PROVIDES this tag:"
-                    table.sort(provs)
-                    for _, p in ipairs(provs) do
-                        lines[#lines + 1] = "    " .. p
-                    end
-                end
-                if reqs then
-                    lines[#lines + 1] = "  REQUIRES this tag:"
-                    table.sort(reqs)
-                    for _, r in ipairs(reqs) do
-                        lines[#lines + 1] = "    " .. r
-                    end
-                end
-                lines[#lines + 1] = ""
-            end
+        add("=== ALL DAs ===")
+        for _, class_name in ipairs(CLASSES) do
+            add("--- " .. class_name .. ": " .. #rows_by_class[class_name] .. " ---")
+            for _, row in ipairs(rows_by_class[class_name]) do add(row) end
         end
 
-        -- Write to file
-        local path = "Mods/CrabChampionsAP/Scripts/pickup_tags.txt"
+        -- Timestamped so dumps from different builds sit side by side.
+        local path = "Mods/CrabChampionsAP/Scripts/pickup_dump_" .. os.date("%Y%m%d_%H%M%S") .. ".txt"
         local f = io.open(path, "w")
         if f then
             f:write(table.concat(lines, "\n") .. "\n")
             f:close()
-            log("  Written to " .. path .. " (" .. #lines .. " lines)")
+            log("  " .. total .. " DAs, " .. #new_items .. " new, " .. #greed_items
+                .. " greed, " .. #sorted_tags .. " tags -> " .. path)
         else
             log("  ERROR: Could not write to " .. path)
         end
@@ -1264,4 +1307,4 @@ RegisterKeyBind(Key.F11, function()
     end)
 end)
 
-log("  F1 = Lock to Auto Rifle | F2 = Unlock Crossbow | F3 = Connect | F4 = Overlay | F9 = Dump tags | F11 = Toggle unlock all")
+log("  F1 = Lock to Auto Rifle | F2 = Unlock Crossbow | F3 = Connect | F4 = Overlay | F9 = Dump pickup data | F11 = Toggle unlock all")
