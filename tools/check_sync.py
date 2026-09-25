@@ -83,6 +83,13 @@ if lua_greed != py_greed:
     problems.append(f"greed lists differ: only in Items.py {sorted(py_greed - lua_greed)}, "
                     f"only in LocationData.lua {sorted(lua_greed - py_greed)}")
 
+# The client refuses seeds whose layout differs from its own, so both sides
+# must agree on the current one.
+loc_src = open(REPO / "apworld/crabchampions/Locations.py", encoding="utf-8").read()
+py_layout = int(loc_src.split("ID_LAYOUT = ", 1)[1].split()[0])
+if py_layout != int(locdata.ID_LAYOUT):
+    problems.append(f"ID_LAYOUT differs: Locations.py={py_layout} LocationData.lua={locdata.ID_LAYOUT}")
+
 # Tag rules must name real items.
 for req, providers in items.PICKUP_TAG_REQUIREMENTS.items():
     for name in (req, *providers):

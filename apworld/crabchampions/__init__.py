@@ -13,7 +13,7 @@ from .Items import (
 )
 from .Locations import (
     CrabChampsLocation, CrabChampsLocationCategory, location_tables,
-    RANK_NAMES, MAX_ISLANDS, NUM_RANKS,
+    RANK_NAMES, MAX_ISLANDS, NUM_RANKS, ID_LAYOUT,
     rank_from_location_name, SHOP_ISLANDS, _island_prefix,
 )
 from .Options import CrabChampsOption
@@ -781,4 +781,5 @@ class CrabChampsWorld(World):
             "seed": self.multiworld.seed_name,
             "slot": self.multiworld.player_name[self.player],
             "base_id": self.base_id,
+            "id_layout": ID_LAYOUT,
         }

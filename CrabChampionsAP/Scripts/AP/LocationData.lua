@@ -19,6 +19,9 @@ local function log(msg) print("[CrabAP-LocData] " .. tostring(msg)) end
 -- ---------------------------------------------------------------
 M.BASE_ID = 1890000
 M.TABLE_OFFSET = 12000
+-- Must match ID_LAYOUT in Locations.py. APClient refuses seeds from any
+-- other layout, since their item and location IDs mean different things.
+M.ID_LAYOUT = 1
 
 M.REGION = {
     island      = 0,

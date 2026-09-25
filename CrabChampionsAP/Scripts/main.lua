@@ -929,14 +929,14 @@ APClient.on_item_send = function(info)
 end
 APClient.on_location_info = on_location_info
 APClient.on_location_checked = on_location_checked
-APClient.on_disconnected = function()
+APClient.on_disconnected = function(reason)
     restore_equipment_locks()
     restore_all_descriptions()
     -- Clear description caches
     scouted_info = {}
     received_da_set = {}
     location_to_da = {}
-    if APOverlay then APOverlay.set_disconnected() end
+    if APOverlay then APOverlay.set_disconnected(reason) end
 end
 APClient.on_slot_refused = function(reason_str)
     if APOverlay then APOverlay.set_disconnected("Refused: " .. tostring(reason_str)) end

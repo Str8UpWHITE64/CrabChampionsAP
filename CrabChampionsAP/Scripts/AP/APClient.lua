@@ -42,6 +42,10 @@ local Client = {
     -- Location tracking
     _checked = {},           -- set[location_id] = true
 
+    -- Set when the seed's ID layout doesn't match this mod; blocks items and
+    -- checks until the next connect.
+    _layout_mismatch = false,
+
     -- Outgoing queues (populated by hooks, consumed by LoopAsync)
     _outgoing_checks = {},   -- array of location_ids to send
     _outgoing_scouts = {},   -- array of location_ids to scout
@@ -206,8 +210,24 @@ function Client:_register_handlers()
     end)
 
     c:set_slot_connected_handler(function(slot_data)
+        slot_data = slot_data or {}
+        local LocationData = require("AP/LocationData")
+
+        -- Item and location IDs come from this mod's tables, so a seed made
+        -- for a different layout would apply the wrong items and send the
+        -- wrong checks. Seeds from before the field existed are layout 1.
+        local layout = tonumber(slot_data.id_layout) or 1
+        if layout ~= LocationData.ID_LAYOUT then
+            self._layout_mismatch = true
+            local reason = "seed needs ID layout " .. layout .. ", this mod has "
+                .. LocationData.ID_LAYOUT .. " - install the mod version that matches the seed"
+            log("ERROR: " .. reason)
+            self:queue_command("disconnect", { reason = reason })
+            return
+        end
+
         self._slot_connected = true
-        self.slot_data = slot_data or {}
+        self.slot_data = slot_data
         -- Cache our slot number for quick access
         pcall(function() self.slot_number = c:get_player_number() or -1 end)
         log("Slot connected successfully (slot #" .. tostring(self.slot_number) .. ")")
@@ -216,7 +236,6 @@ function Client:_register_handlers()
         -- arrays in the Connected packet.  Their union is the complete set
         -- of location IDs the server knows about for our slot — no need for
         -- the apworld to bundle locationsId in slot_data.
-        local LocationData = require("AP/LocationData")
         if LocationData and LocationData.set_location_allowlist then
             local missing = c:get_missing_locations() or {}
             local checked = c:get_checked_locations() or {}
@@ -540,6 +559,10 @@ local ITEM_APPLY_DELAY_MS = 150      -- ms pause between chunks
 local _item_apply_running = false    -- prevent overlapping apply loops
 
 function Client:_apply_pending_items()
+    if self._layout_mismatch then
+        self._pending_items = {}
+        return
+    end
     if #self._pending_items == 0 then return end
     if _item_apply_running then return end  -- already processing a batch
     _item_apply_running = true
@@ -601,8 +624,8 @@ function Client:_execute_command(cmd, args)
         -- Reset tags so the next connection starts without any stale flags
         self.tags = { "AP" }
         self.enabled = false
-        log("Disconnected by user")
-        if self.on_disconnected then pcall(self.on_disconnected) end
+        log("Disconnected" .. (args.reason and (": " .. args.reason) or " by user"))
+        if self.on_disconnected then pcall(self.on_disconnected, args.reason) end
 
     elseif cmd == "connect" then
         -- server/slot/password are already set by the caller (F3 reads from
@@ -615,6 +638,7 @@ function Client:_execute_command(cmd, args)
         self._pending_items = {}
         self._checked = {}
         self._outgoing_scouts = {}
+        self._layout_mismatch = false
         self.enabled = true
         self._deferred_init = true
         log("Reconnecting to " .. self.server .. " as " .. self.slot .. "...")
@@ -655,6 +679,7 @@ end
 --- sending one would otherwise crash the server with a KeyError.
 ---@param location_id number
 function Client:send_check(location_id)
+    if self._layout_mismatch then return end
     location_id = tonumber(location_id)
     if not location_id then return end
     if self._checked[location_id] then return end
