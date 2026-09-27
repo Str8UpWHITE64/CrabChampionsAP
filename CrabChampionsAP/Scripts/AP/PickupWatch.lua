@@ -218,34 +218,22 @@ function M.check_victory()
     end
 
     --- Count completed runs at the final island on the required rank.
-    --- ONLY pool equipment counts.  Non-pool equipment is available from the
+    --- Only pool equipment counts: non-pool equipment is available from the
     --- start, so counting it would let the goal be met without receiving a
-    --- single AP item.  Non-pool equipment runs are still ordinary location
-    --- checks (see equipment_check_mode) — they just never advance the goal.
+    --- single AP item.  Seeds made before 1.4 were generated with non-pool
+    --- runs counting whenever equipment_check_mode wasn't disabled, so they
+    --- keep that rule and a client update can't change their goal mid-run.
+    local count_non_pool = not LocationData.pool_only_completion and equip_mode ~= 2
     ---@param pool_set table Set of pool equipment names (name -> true)
     ---@param all_names table Ordered list of every name of this kind
-    ---@param needed number How many distinct runs the goal requires
     ---@param loc_id_fn function (island, name, rank) -> location_id
-    local function count_completed_runs(pool_set, all_names, needed, loc_id_fn)
-        local count, pool_size = 0, 0
-        for name, _ in pairs(pool_set) do
-            pool_size = pool_size + 1
-            local loc_id = loc_id_fn(final, name, req_rank)
-            if loc_id and client:is_location_checked(loc_id) then
-                count = count + 1
-            end
-        end
-        -- Legacy seeds: before the pool caps were raised to the full
-        -- equipment count, a slot could require more runs than its pool
-        -- holds.  Those seeds are only beatable with non-pool runs, so keep
-        -- counting them there rather than bricking an in-progress game.
-        if needed > pool_size and equip_mode ~= 2 then
-            for _, name in ipairs(all_names) do
-                if not pool_set[name] then
-                    local loc_id = loc_id_fn(final, name, req_rank)
-                    if loc_id and client:is_location_checked(loc_id) then
-                        count = count + 1
-                    end
+    local function count_completed_runs(pool_set, all_names, loc_id_fn)
+        local count = 0
+        for _, name in ipairs(all_names) do
+            if pool_set[name] or count_non_pool then
+                local loc_id = loc_id_fn(final, name, req_rank)
+                if loc_id and client:is_location_checked(loc_id) then
+                    count = count + 1
                 end
             end
         end
@@ -254,14 +242,12 @@ function M.check_victory()
 
     local weapon_count = count_completed_runs(
         LocationData.pool_weapons, LocationData.weapon_names,
-        LocationData.weapons_for_completion,
         LocationData.weapon_run_location_id_by_name)
 
     local melee_count = 0
     if LocationData.melee_for_completion > 0 then
         melee_count = count_completed_runs(
             LocationData.pool_melee, LocationData.melee_names,
-            LocationData.melee_for_completion,
             LocationData.melee_run_location_id_by_name)
     end
 
@@ -269,7 +255,6 @@ function M.check_victory()
     if LocationData.ability_for_completion > 0 then
         ability_count = count_completed_runs(
             LocationData.pool_abilities, LocationData.ability_names,
-            LocationData.ability_for_completion,
             LocationData.ability_run_location_id_by_name)
     end
 

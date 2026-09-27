@@ -753,6 +753,10 @@ class CrabChampsWorld(World):
                 "cascade_ranked_checks": bool(self.options.cascade_ranked_checks.value),
                 "minimize_run_checks": bool(self.options.minimize_run_checks.value),
                 "run_length": self.options.run_length.value,
+                # Only pool equipment counts toward completion.  Seeds made
+                # before this field existed also counted non-pool runs, and
+                # the client keeps that rule for them.
+                "pool_only_completion": True,
                 "weapons_for_completion": self.options.weapons_for_completion.value,
                 "weapons_in_pool": self.options.weapons_in_pool.value,
                 "starting_weapons": self.options.starting_weapons.value,

@@ -108,6 +108,8 @@ M._has_pickup_subsets = false
 
 -- Completion requirements: populated by configure()
 M.weapons_for_completion = 1
+-- False for seeds made before 1.4, whose goal also counted non-pool runs.
+M.pool_only_completion = false
 M.melee_for_completion = 0
 M.ability_for_completion = 0
 
@@ -144,6 +146,7 @@ function M.configure(slot_data)
     M.starting_ability_mod_slots = tonumber(opts.starting_ability_mod_slots) or 12
     M.starting_melee_mod_slots = tonumber(opts.starting_melee_mod_slots) or 12
     M.weapons_for_completion = tonumber(opts.weapons_for_completion) or 1
+    M.pool_only_completion = opts.pool_only_completion == true
     M.melee_for_completion = tonumber(opts.melee_for_completion) or 0
     M.ability_for_completion = tonumber(opts.ability_for_completion) or 0
     M.limit_pickup_pool = opts.limit_pickup_pool or false
