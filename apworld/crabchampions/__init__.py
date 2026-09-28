@@ -779,6 +779,8 @@ class CrabChampsWorld(World):
                 "starting_weapon_mod_slots": self.options.starting_weapon_mod_slots.value,
                 "starting_ability_mod_slots": self.options.starting_ability_mod_slots.value,
                 "starting_melee_mod_slots": self.options.starting_melee_mod_slots.value,
+                "starting_item_percentage": self.options.starting_item_percentage.value,
+                "biome_item_percentage": self.options.biome_item_percentage.value,
                 "death_link": bool(self.options.death_link.value),
             },
             "death_link": bool(self.options.death_link.value),

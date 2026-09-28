@@ -383,6 +383,37 @@ class StartingMeleeModSlots(Range):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Received items per run
+# ──────────────────────────────────────────────────────────────────────────
+
+class StartingItemPercentage(Range):
+    """Percentage of your received perks, mods and relics that you start each
+    run with, picked at random (rounded up).  The rest can arrive at each new
+    biome, see Biome Item Percentage.  Crystals always come in full, and items
+    received during a run are applied right away.
+
+    Set to 100 to start every run with everything you have received."""
+    display_name = "Starting Item Percentage"
+    range_start = 0
+    range_end = 100
+    default = 5
+
+
+class BiomeItemPercentage(Range):
+    """When you clear the last island of a biome, this percentage of the
+    received perks, mods and relics you don't have yet this run is granted,
+    picked at random (rounded up).  Higher values make runs easier as they go
+    on.
+
+    Set to 0 to only ever get the items from Starting Item Percentage.  Has no
+    effect when Starting Item Percentage is 100."""
+    display_name = "Biome Item Percentage"
+    range_start = 0
+    range_end = 100
+    default = 5
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Filler / misc
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -474,6 +505,9 @@ class CrabChampsOption(PerGameCommonOptions):
     starting_weapon_mod_slots: StartingWeaponModSlots
     starting_ability_mod_slots: StartingAbilityModSlots
     starting_melee_mod_slots: StartingMeleeModSlots
+    # Received items per run
+    starting_item_percentage: StartingItemPercentage
+    biome_item_percentage: BiomeItemPercentage
     # Filler / misc
     crystal_cache_percentage: CrystalCachePercentage
     greed_item_mode: GreedItemMode

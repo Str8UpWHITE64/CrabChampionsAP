@@ -542,6 +542,15 @@ function M.install(ap_client)
         island_counter = island  -- keep in sync for get_island_counter()
         send_island_checks(island, "Island cleared")
 
+        -- Clearing a biome's last island: grant biome_item_percentage of
+        -- the received items not yet in this run.
+        if island % LocationData.BIOME_LENGTH == 0 and island < LocationData.run_length then
+            local ia_ok, ItemApply = pcall(require, "AP/ItemApply")
+            if ia_ok and ItemApply and ItemApply.on_biome_cleared then
+                ItemApply.on_biome_cleared()
+            end
+        end
+
         -- Check if the NEXT island is a shop (no combat clear will fire).
         -- If so, flag it so the portal hook can send the shop check.
         if LocationData.SHOP_ISLANDS[island + 1] then

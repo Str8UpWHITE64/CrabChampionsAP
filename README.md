@@ -187,6 +187,20 @@ When enabled, pickup location checks are only generated for items in the chosen 
 
 ---
 
+### Received Items Per Run
+
+Perks, mods and relics only last one run, so the mod gives you your received ones again at the start of every run. These options control how many.
+
+#### `starting_item_percentage` (Default: 5, Range: 0–100)
+The percentage of your received perks, mods and relics you start each run with, picked at random and rounded up. Items received during a run are applied right away, and crystals always come in full. Set to **100** to start every run with everything.
+
+> **Example:** With 200 received items and `starting_item_percentage: 5`, each run starts with 10 of them.
+
+#### `biome_item_percentage` (Default: 5, Range: 0–100)
+When you clear the last island of a biome, this percentage of the received items you don't have yet this run is granted, picked at random and rounded up. Set to **0** to turn it off.
+
+> **Example:** Continuing the example above, clearing the first biome grants 5% of the remaining 190 items, so 10 more.
+
 ### Filler & Miscellaneous
 
 #### `crystal_cache_percentage` (Default: 75, Range: 0–100)

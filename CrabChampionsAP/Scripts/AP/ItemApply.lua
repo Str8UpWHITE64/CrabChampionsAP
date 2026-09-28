@@ -41,6 +41,10 @@ M._run_items = {}
 -- Track total crystals received so we can re-grant them on lobby return
 M._run_crystals = 0
 
+-- Indices into _run_items that are in the inventory this run. With
+-- starting_item_percentage below 100 a run only gets a share of them.
+M._granted = {}
+
 -- Lobby state: items are only spawned/granted while in the lobby.
 -- Items received mid-run are tracked but not spawned until lobby return.
 M.in_lobby = true
@@ -76,6 +80,12 @@ local CPP_QUEUE_NAMES = { "Perks", "Relics", "WeaponMods", "MeleeMods", "Ability
 -- Set while an overflow retry owns the overflow queues.
 local overflow_retry_running = false
 
+-- True from a (re)connect until the first draw. The server re-sends every
+-- received item on connect, so the draw waits until they stop arriving.
+local draw_pending = false
+local draw_generation = 0
+local DRAW_SETTLE_MS = 1500
+
 -- Crystal batching state. Declared up here so M.reset() clears these rather
 -- than creating same-named globals.
 local crystal_pending = 0
@@ -94,7 +104,10 @@ function M.reset()
     M.unlocked = {}
     M._run_items = {}
     M._run_crystals = 0
+    M._granted = {}
     M.in_lobby = true
+    draw_pending = true
+    draw_generation = draw_generation + 1
 
     -- Clear all queues
     cpp_pending = new_aggregate()
@@ -639,6 +652,93 @@ local function queue_crystals(amount)
 end
 
 -------------------------------------------------------------
+-- Run draws: starting_item_percentage and biome_item_percentage
+-------------------------------------------------------------
+
+--- Starting and biome percentages for this slot. 100 / 0 when not connected
+--- or on seeds from before 1.5, which gives the old everything-each-run.
+local function draw_percentages()
+    local ok, LocationData = pcall(require, "AP/LocationData")
+    if not ok or not LocationData then return 100, 0 end
+    return LocationData.starting_item_percentage or 100, LocationData.biome_item_percentage or 0
+end
+
+--- Put the tracked item at `idx` into the inventory for this run.
+local function grant(idx)
+    local item = M._run_items[idx]
+    M._granted[idx] = true
+    if has_cpp_mod() and item.da and item.cat then
+        queue_cpp_item(item)
+    elseif M.in_lobby and item.da then
+        queue_spawn(item.da, item.name, item.full_name)
+    end
+end
+
+--- Pick pct% of `pool` (rounded up) at random. Shuffles `pool` in place.
+local function pick(pool, pct)
+    for i = #pool, 2, -1 do
+        local j = math.random(i)
+        pool[i], pool[j] = pool[j], pool[i]
+    end
+    local out = {}
+    for i = 1, math.min(math.ceil(#pool * pct / 100), #pool) do
+        out[i] = pool[i]
+    end
+    return out
+end
+
+--- Items the draw picks from: everything received except greed drops, which
+--- are spawned on the lobby floor for the player to take or leave.
+local function draw_pool(skip_granted)
+    local pool = {}
+    for idx, item in ipairs(M._run_items) do
+        if not item.greed_drop and not (skip_granted and M._granted[idx]) then
+            pool[#pool + 1] = idx
+        end
+    end
+    return pool
+end
+
+--- Draw this run's starting items. Called on lobby entry and once the
+--- connect re-send has settled.
+local function start_run_draw()
+    draw_pending = false
+    M._granted = {}
+    local start_pct = draw_percentages()
+    local pool = draw_pool(false)
+    local chosen = pick(pool, start_pct)
+    for _, idx in ipairs(chosen) do grant(idx) end
+    if start_pct < 100 then
+        log("Run start: " .. #chosen .. " of " .. #pool .. " received items (" .. start_pct .. "%)")
+    end
+end
+
+--- Run the start draw once no item has arrived for DRAW_SETTLE_MS.
+local function schedule_settled_draw()
+    draw_generation = draw_generation + 1
+    local generation = draw_generation
+    LoopAsync(DRAW_SETTLE_MS, function()
+        if generation == draw_generation and draw_pending then
+            start_run_draw()
+        end
+        return true  -- run once
+    end)
+end
+
+--- Clearing a biome's last island grants biome_item_percentage of the
+--- received items not in this run yet.
+function M.on_biome_cleared()
+    local start_pct, biome_pct = draw_percentages()
+    if start_pct >= 100 or biome_pct <= 0 then return end
+    local remaining = draw_pool(true)
+    if #remaining == 0 then return end
+    local chosen = pick(remaining, biome_pct)
+    for _, idx in ipairs(chosen) do grant(idx) end
+    log("Biome cleared: granted " .. #chosen .. " of " .. #remaining .. " remaining items ("
+        .. biome_pct .. "%)")
+end
+
+-------------------------------------------------------------
 -- Public API
 -------------------------------------------------------------
 
@@ -782,17 +882,22 @@ function M.apply_item(ap_item_id)
         full_name = info.full_name,
         cat = info.cat,
     })
+    local idx = #M._run_items
 
-    -- Try C++ mod first (instant, crash-free — works mid-run and in lobby)
-    -- Fall back to spawn+collect (lobby only) if C++ mod not available
-    if has_cpp_mod() then
-        queue_cpp_item(info)
-    else
-        if M.in_lobby then
-            queue_spawn(info.da, info.name, info.full_name)
-        else
+    -- Items received mid-run always apply. In the lobby a partial start
+    -- draw decides instead: the connect re-send waits for the draw, and
+    -- later arrivals get the same odds the draw gave everything else, so
+    -- waiting in the lobby doesn't get around it.
+    local start_pct = draw_percentages()
+    if start_pct >= 100 or not M.in_lobby then
+        grant(idx)
+        if not has_cpp_mod() and not M.in_lobby then
             log("Queued for lobby (no C++ mod): " .. info.name)
         end
+    elseif draw_pending then
+        schedule_settled_draw()
+    elseif math.random() * 100 < start_pct then
+        grant(idx)
     end
 end
 
@@ -823,33 +928,18 @@ function M.reapply_run_items()
         return
     end
 
-    log("Re-applying " .. #M._run_items .. " run items for new run...")
-    if has_cpp_mod() then
-        -- Batch all items through C++ mod, respecting greed mode
-        for _, item in ipairs(M._run_items) do
-            if item.greed_drop then
-                -- Greed drop mode: spawn on floor for manual pickup
-                if item.da then
-                    queue_spawn(item.da, item.name, item.full_name)
-                end
-            elseif item.da and item.cat then
-                aggregate_add(cpp_pending, item, 1)
-            elseif item.da then
-                queue_spawn(item.da, item.name, item.full_name)
-            else
-                log("Skipping " .. item.name .. " — no DA reference")
-            end
+    -- Greed drop mode: every greed item goes on the floor for manual pickup
+    for _, item in ipairs(M._run_items) do
+        if item.greed_drop and item.da then
+            queue_spawn(item.da, item.name, item.full_name)
         end
+    end
+
+    log("Re-applying run items for new run (" .. #M._run_items .. " received)...")
+    start_run_draw()
+    if has_cpp_mod() then
         -- Flush immediately for re-apply (no need to wait)
         flush_cpp_queue()
-    else
-        for _, item in ipairs(M._run_items) do
-            if item.da then
-                queue_spawn(item.da, item.name, item.full_name)
-            else
-                log("Skipping " .. item.name .. " — no DA reference")
-            end
-        end
     end
 end
 

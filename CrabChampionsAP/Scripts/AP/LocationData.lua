@@ -46,6 +46,10 @@ M.SHOP_ISLANDS = {
     [34]=true, [41]=true, [48]=true, [55]=true,   -- cycle 2
 }
 
+-- Islands per biome: the shop is the 6th, the 7th is the last. Clearing an
+-- island that is a multiple of this means the next one starts a new biome.
+M.BIOME_LENGTH = 7
+
 M.RANK_NAMES = {
     "Bronze", "Silver", "Gold", "Sapphire",
     "Emerald", "Ruby", "Diamond", "Prismatic",
@@ -110,6 +114,11 @@ M._has_pickup_subsets = false
 M.weapons_for_completion = 1
 -- False for seeds made before 1.4, whose goal also counted non-pool runs.
 M.pool_only_completion = false
+
+-- Share of received perks/mods/relics given at the start of a run and at each
+-- new biome. Seeds without these options get everything, as before 1.5.
+M.starting_item_percentage = 100
+M.biome_item_percentage = 0
 M.melee_for_completion = 0
 M.ability_for_completion = 0
 
@@ -147,6 +156,8 @@ function M.configure(slot_data)
     M.starting_melee_mod_slots = tonumber(opts.starting_melee_mod_slots) or 12
     M.weapons_for_completion = tonumber(opts.weapons_for_completion) or 1
     M.pool_only_completion = opts.pool_only_completion == true
+    M.starting_item_percentage = tonumber(opts.starting_item_percentage) or 100
+    M.biome_item_percentage = tonumber(opts.biome_item_percentage) or 0
     M.melee_for_completion = tonumber(opts.melee_for_completion) or 0
     M.ability_for_completion = tonumber(opts.ability_for_completion) or 0
     M.limit_pickup_pool = opts.limit_pickup_pool or false
