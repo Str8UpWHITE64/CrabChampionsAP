@@ -773,6 +773,7 @@ class CrabChampsWorld(World):
                 "pickup_checks": bool(self.options.pickup_checks.value),
                 "limit_pickup_pool": bool(self.options.limit_pickup_pool.value),
                 "limit_pickup_locations": bool(self.options.limit_pickup_locations.value),
+                "granted_item_checks": bool(self.options.granted_item_checks.value),
                 "pickup_subsets": self.pickup_subsets,
                 "progressive_slots": bool(self.options.progressive_slots.value),
                 "starting_perk_slots": self.options.starting_perk_slots.value,

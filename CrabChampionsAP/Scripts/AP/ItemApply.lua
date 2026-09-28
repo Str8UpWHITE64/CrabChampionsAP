@@ -409,12 +409,6 @@ local function cpp_add_item(info, count)
             log("Added via C++ mod: " .. info.name .. " -> " .. arr_info[1])
         end
 
-        -- Send location check (since we bypassed the pickup hook)
-        pcall(function()
-            local PickupWatch = require("AP/PickupWatch")
-            PickupWatch.send_pickup_check(info.full_name)
-        end)
-
         return true
     else
         log("C++ mod failed for " .. info.name .. ": " .. tostring(result))
@@ -843,6 +837,15 @@ function M.apply_item(ap_item_id)
     end
 
     M.unlocked[info.full_name] = true
+
+    -- granted_item_checks: receiving the item completes its pickup check.
+    -- Done on receipt so it doesn't depend on the run draw or free slots.
+    local ld_ok, LocationData = pcall(require, "AP/LocationData")
+    if ld_ok and LocationData and LocationData.granted_item_checks then
+        pcall(function()
+            require("AP/PickupWatch").send_pickup_check(info.full_name)
+        end)
+    end
 
     -- Handle greed items based on greed_item_mode from slot_data
     local is_greed = is_greed_item(info.full_name)

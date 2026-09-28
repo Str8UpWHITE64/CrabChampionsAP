@@ -175,6 +175,13 @@ The most specific "Complete Island X with Weapon on Rank" check is always kept.
 
 ---
 
+### Pickup Checks
+
+#### `granted_item_checks` (Default: true)
+When on, receiving a perk, mod or relic from the multiworld also completes that item's pickup check. For example, being sent Driller checks "Perk: Driller".
+
+When off, pickup checks only come from finding items in a run: loot, chests, totems and shop purchases. Items you drop and pick back up, and the lobby's free item, never count either way.
+
 ### Pickup Subset Limits
 
 These options scale the pickup pool down to per-run inventory caps so the AP pool doesn't grossly exceed what the player can actually carry. Both options share the same randomly-chosen subset (24 perks, 24 weapon mods, 12 ability mods, 12 melee mods, 10 relics) and can be enabled independently.

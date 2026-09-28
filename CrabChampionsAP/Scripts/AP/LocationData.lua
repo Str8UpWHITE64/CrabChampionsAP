@@ -119,6 +119,10 @@ M.pool_only_completion = false
 -- new biome. Seeds without these options get everything, as before 1.5.
 M.starting_item_percentage = 100
 M.biome_item_percentage = 0
+
+-- Whether receiving an item completes its pickup check. Seeds from before the
+-- option existed did this, so it defaults to on.
+M.granted_item_checks = true
 M.melee_for_completion = 0
 M.ability_for_completion = 0
 
@@ -158,6 +162,7 @@ function M.configure(slot_data)
     M.pool_only_completion = opts.pool_only_completion == true
     M.starting_item_percentage = tonumber(opts.starting_item_percentage) or 100
     M.biome_item_percentage = tonumber(opts.biome_item_percentage) or 0
+    M.granted_item_checks = opts.granted_item_checks ~= false
     M.melee_for_completion = tonumber(opts.melee_for_completion) or 0
     M.ability_for_completion = tonumber(opts.ability_for_completion) or 0
     M.limit_pickup_pool = opts.limit_pickup_pool or false

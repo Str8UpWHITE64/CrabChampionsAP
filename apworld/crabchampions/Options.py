@@ -317,6 +317,19 @@ class LimitPickupLocations(Toggle):
     display_name = "Limit Pickup Locations"
 
 
+class GrantedItemChecks(DefaultOnToggle):
+    """When on, receiving a perk, mod or relic from the multiworld also
+    completes that item's pickup check, e.g. being sent Driller checks
+    "Perk: Driller".
+
+    When off, pickup checks only come from finding items in a run: loot,
+    chests, totems and shop purchases.  Items you drop and pick back up, and
+    the lobby's free item, never count either way.
+
+    Has no effect when Pickup Checks is off."""
+    display_name = "Granted Item Checks"
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Progressive inventory slots
 # ──────────────────────────────────────────────────────────────────────────
@@ -499,6 +512,7 @@ class CrabChampsOption(PerGameCommonOptions):
     pickup_checks: PickupChecks
     limit_pickup_pool: LimitPickupPool
     limit_pickup_locations: LimitPickupLocations
+    granted_item_checks: GrantedItemChecks
     # Progressive inventory slots
     progressive_slots: ProgressiveSlots
     starting_perk_slots: StartingPerkSlots

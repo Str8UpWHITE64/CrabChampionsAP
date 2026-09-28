@@ -48,6 +48,9 @@ local Client = {
 
     -- Outgoing queues (populated by hooks, consumed by LoopAsync)
     _outgoing_checks = {},   -- array of location_ids to send
+    -- Seed and slot the outgoing queue belongs to. Nil until a slot connects,
+    -- so checks made before connecting are ignored rather than queued.
+    _queue_identity = nil,
     _outgoing_scouts = {},   -- array of location_ids to scout
     _outgoing_say = {},      -- array of chat messages
     _outgoing_status = nil,  -- status code to send
@@ -225,6 +228,15 @@ function Client:_register_handlers()
             self:queue_command("disconnect", { reason = reason })
             return
         end
+
+        -- Checks queued while disconnected belong to the seed and slot they
+        -- were made in; drop them when connecting to a different one.
+        local identity = tostring(slot_data.seed) .. "/" .. tostring(self.slot)
+        if self._queue_identity and self._queue_identity ~= identity and #self._outgoing_checks > 0 then
+            log("Dropping " .. #self._outgoing_checks .. " queued check(s) from a different seed or slot")
+            self._outgoing_checks = {}
+        end
+        self._queue_identity = identity
 
         self._slot_connected = true
         self.slot_data = slot_data
@@ -680,6 +692,10 @@ end
 ---@param location_id number
 function Client:send_check(location_id)
     if self._layout_mismatch then return end
+    if not self._queue_identity then
+        log("Not connected to a seed yet, check " .. tostring(location_id) .. " ignored")
+        return
+    end
     location_id = tonumber(location_id)
     if not location_id then return end
     if self._checked[location_id] then return end

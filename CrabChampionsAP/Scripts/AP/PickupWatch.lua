@@ -280,11 +280,55 @@ function M.install(ap_client)
     client = ap_client
 
     -- ---------------------------------------------------------------
+    -- Where a pickup came from
+    --
+    -- Loot, chest and totem items are owned by the player who earned them,
+    -- and shop items have a price. Items the player dropped, the lobby key
+    -- totem's free item and pickups this mod spawns have neither, so they
+    -- aren't finds. The interact event carries the pickup actor; the pickup
+    -- event that follows only has the item.
+    -- ---------------------------------------------------------------
+    local pending_pickup = nil   -- { full_name = string, is_find = bool }
+    local pickup_class = nil
+
+    -- Portals, chests and totems also go through ServerInteract, and
+    -- reading PickupInfo on them returns junk, so check the class.
+    local function is_item_pickup(actor)
+        if pickup_class == nil then
+            local ok, cls = pcall(StaticFindObject, "/Script/CrabChampions.CrabInteractPickup")
+            pickup_class = (ok and cls and cls:IsValid()) and cls or false
+        end
+        if pickup_class then
+            local ok, yes = pcall(function() return actor:IsA(pickup_class) end)
+            if ok then return yes end
+        end
+        local fn = get_full_name(actor) or ""
+        return fn:find("^CrabInteractPickup ") ~= nil or fn:find("^BP_Pickup_") ~= nil
+    end
+
+    RegisterHook("/Script/CrabChampions.CrabPlayerC:ServerInteract", function(Context, Actor)
+        pending_pickup = nil
+        local actor = Actor and Actor.get and Actor:get() or nil
+        if not actor or not actor:IsValid() or not is_item_pickup(actor) then return end
+        pcall(function()
+            local info = actor.PickupInfo
+            local player_ps = get_full_name(Context:get().PlayerState)
+            local owner = get_full_name(info.OwningPS)
+            pending_pickup = {
+                full_name = get_full_name(info.PickupDA),
+                is_find = (owner ~= nil and owner == player_ps) or (tonumber(info.Cost) or 0) > 0,
+            }
+        end)
+    end)
+
+    -- ---------------------------------------------------------------
     -- Pickup hook (not rank-dependent)
     -- ---------------------------------------------------------------
     RegisterHook("/Script/CrabChampions.CrabPC:ClientOnPickedUpPickup", function(Context, PickupDA)
         -- When pickup checks are disabled, don't process pickups as checks
         if not LocationData.pickup_checks then return end
+        -- Not connected to a seed this session: leave the game alone.
+        if not client or not client.slot_data then return end
 
         local pickup = PickupDA and PickupDA.get and PickupDA:get() or nil
         local full_name = get_full_name(pickup)
@@ -304,6 +348,15 @@ function M.install(ap_client)
                     return
                 end
             end
+        end
+
+        -- Only a real find counts. Without a matching interact (hook not
+        -- available) fall back to treating it as one.
+        local origin = pending_pickup
+        pending_pickup = nil
+        if origin and origin.full_name == full_name and not origin.is_find then
+            log("Not a find (dropped, lobby or mod-spawned), ignored: " .. full_name)
+            return
         end
 
         local location_id, kind = LocationData.from_da(full_name)
@@ -337,6 +390,13 @@ function M.install(ap_client)
         end
 
         client:send_check(location_id)
+
+        -- A received item is the player's already, so the found copy stays.
+        local ia_ok, ItemApply = pcall(require, "AP/ItemApply")
+        if ia_ok and ItemApply and ItemApply.unlocked[full_name] then
+            log("Found an item already received, keeping it: " .. display)
+            return
+        end
 
         local remove_kind = kind
         local remove_fn = full_name
