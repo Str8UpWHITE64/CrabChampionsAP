@@ -38,6 +38,7 @@ local Client = {
     -- Item tracking (append-only with index-based ack)
     _applied_index = -1,
     _pending_items = {},
+    _apply_generation = 0,   -- bumped on slot connect to stop an older apply loop
 
     -- Location tracking
     _checked = {},           -- set[location_id] = true
@@ -237,6 +238,13 @@ function Client:_register_handlers()
             self._outgoing_checks = {}
         end
         self._queue_identity = identity
+
+        -- on_slot_connected clears the inventory and the server re-sends every
+        -- item after Connected, so all of them have to apply again. The socket
+        -- also reconnects on its own after a drop, without the connect command.
+        self._applied_index = -1
+        self._pending_items = {}
+        self._apply_generation = self._apply_generation + 1
 
         self._slot_connected = true
         self.slot_data = slot_data
@@ -585,8 +593,15 @@ function Client:_apply_pending_items()
     self._pending_items = {}
     local idx = 1
     local self_ref = self
+    local generation = self._apply_generation
 
     local function process_chunk()
+        -- A slot connect since this batch started replays everything itself.
+        if self_ref._apply_generation ~= generation then
+            _item_apply_running = false
+            self_ref:_apply_pending_items()
+            return
+        end
         local chunk_end = math.min(idx + ITEM_APPLY_BATCH - 1, #items)
 
         for i = idx, chunk_end do
