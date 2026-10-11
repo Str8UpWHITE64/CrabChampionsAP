@@ -59,6 +59,20 @@ local DEFAULTS = {
 -- Types that use hard limits (no UE property) instead of AP_SetSlotCount
 local HARD_LIMIT_TYPES = { Relics = true }
 
+-- CrabPS property behind each slot type, read by the watchdog
+local SLOT_PROPS = {
+    Perks = "NumPerkSlots",
+    WeaponMods = "NumWeaponModSlots",
+    AbilityMods = "NumAbilityModSlots",
+    MeleeMods = "NumMeleeModSlots",
+}
+
+-- How often the watchdog compares the game's slot counts to ours
+local WATCHDOG_MS = 1000
+
+-- Last mismatch logged per type, so a value that won't stick logs once
+local last_logged = {}
+
 -- ECrabPickupType enum -> slot type mapping
 local PICKUP_TYPE_TO_SLOT = {
     [4] = "WeaponMods",
@@ -108,7 +122,52 @@ function M.install()
         end)
     end)
 
+    -- Starting a run resets every slot count to the game's own default (8),
+    -- which hides received slots past 8 and hands out unearned ones below it.
+    -- No hook marks that moment reliably, so poll and correct any drift.
+    LoopAsync(WATCHDOG_MS, function()
+        pcall(M.enforce)
+        return false
+    end)
+
     log("Slot lock hook installed")
+end
+
+local function get_ps()
+    local all = FindAllOf("CrabPS")
+    if not all then return nil end
+    for _, p in ipairs(all) do
+        if p and p:IsValid() then return p end
+    end
+    return nil
+end
+
+--- Put any slot count the game changed back to the AP-granted value.
+--- @return number how many slot types were corrected
+function M.enforce()
+    if not active or not AP_SetSlotCount then return 0 end
+    local ps = get_ps()
+    if not ps then return 0 end
+
+    local fixed = 0
+    for slot_type, count in pairs(locked_counts) do
+        local prop = SLOT_PROPS[slot_type]
+        if prop then
+            local ok, cur = pcall(function() return ps[prop] end)
+            if ok and type(cur) == "number" and cur ~= count then
+                AP_SetSlotCount(slot_type, count)
+                fixed = fixed + 1
+                if last_logged[slot_type] ~= cur then
+                    last_logged[slot_type] = cur
+                    log("Game set " .. slot_type .. " to " .. cur .. ", restored " .. count)
+                end
+            elseif ok and cur == count then
+                last_logged[slot_type] = nil
+            end
+        end
+    end
+    if fixed > 0 then pcall(AP_RefreshInventoryUI) end
+    return fixed
 end
 
 --- Set the allowed slot count for a type. Activates slot locking.
@@ -185,24 +244,24 @@ end
 
 --- Re-apply all stored slot counts. Call on lobby return to restore locks
 --- after the game resets slot counts to defaults.
+--- Runs synchronously: the lobby re-adds run items right after this, and
+--- they must see the locked counts, not the lobby's 24, or extras land in
+--- slots the player hasn't received.
 function M.reapply()
     if not active then return end
 
-    LoopAsync(1, function()
-        for slot_type, count in pairs(locked_counts) do
-            if HARD_LIMIT_TYPES[slot_type] then
-                if AP_SetHardLimit then
-                    AP_SetHardLimit(slot_type, count)
-                    log("Re-applied " .. slot_type .. " = " .. count .. " (hard limit)")
-                end
-            elseif AP_SetSlotCount then
-                AP_SetSlotCount(slot_type, count)
-                log("Re-applied " .. slot_type .. " = " .. count)
+    for slot_type, count in pairs(locked_counts) do
+        if HARD_LIMIT_TYPES[slot_type] then
+            if AP_SetHardLimit then
+                AP_SetHardLimit(slot_type, count)
+                log("Re-applied " .. slot_type .. " = " .. count .. " (hard limit)")
             end
+        elseif AP_SetSlotCount then
+            AP_SetSlotCount(slot_type, count)
+            log("Re-applied " .. slot_type .. " = " .. count)
         end
-        pcall(AP_RefreshInventoryUI)
-        return true
-    end)
+    end
+    pcall(AP_RefreshInventoryUI)
 end
 
 --- Disable slot locking and restore all slots to defaults.
