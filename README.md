@@ -18,7 +18,6 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 ## Requirements
 
 - [Crab Champions](https://store.steampowered.com/app/774801/Crab_Champions/)
-- [UE4SS v3.0.1](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/v3.0.1)
 - [Archipelago](https://archipelago.gg/) v0.6.4+
 
 ## Installation
@@ -32,18 +31,24 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 
 ### Game Mod (Lua/UE4SS)
 
-1. Download [UE4SS v3.0.1](https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip) and unzip it.
-2. Navigate to Steam Library > Right-click Crab Champions > Properties > Local Files > Browse, then go to `CrabChampions\Binaries\Win64` and copy the contents of the UE4SS zip into the game's `Win64` directory.
-3. Edit `UE4SS-settings.ini` and set `ConsoleEnabled = 1` to enable the debug console.
-4. Download **CrabChampionsAP.zip** from the [latest release](https://github.com/Str8UpWHITE64/CrabChampionsAP/releases) and unzip it. Copy all three items into the `Mods` directory:
+The release zip includes [UE4SS v3.0.1](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/v3.0.1), already set up, so there is nothing else to install.
+
+1. Download **`CrabChampionsAP_v<version>.zip`** from the [latest release](https://github.com/Str8UpWHITE64/CrabChampionsAP/releases) and unzip it somewhere temporary. You'll see a `CrabChampions` folder and an `INSTALL.txt`.
+2. Open the game folder: Steam Library > right-click Crab Champions > Properties > Installed Files > Browse. It's usually `C:\Program Files (x86)\Steam\steamapps\common\Crab Champions\`.
+3. Drag the `CrabChampions` folder from the zip into the game folder, and let Windows merge the folders and replace files. Everything lands in `CrabChampions\Binaries\Win64`:
    ```
-   Mods/
-   ├── CrabChampionsAP/    (Lua mod — AP client, overlay, game hooks)
-   ├── CrabInvMngmt/       (C++ mod — inventory management)
-   └── mods.txt             (enables both mods in the correct load order)
+   Win64/
+   ├── dwmapi.dll, UE4SS.dll   (UE4SS)
+   ├── UE4SS-settings.ini       (UE4SS settings, debug console on)
+   ├── LICENSE                  (UE4SS license)
+   └── Mods/
+       ├── CrabChampionsAP/     (Lua mod — AP client, overlay, game hooks)
+       ├── CrabInvMngmt/        (C++ mod — inventory management)
+       ├── mods.txt             (enables both mods in the correct load order)
+       └── ...                  (UE4SS's built-in mods)
    ```
-   > **Note:** The included `mods.txt` replaces the default one. It ensures `CrabInvMngmt` loads before `CrabChampionsAP` so the C++ inventory functions are available when the Lua mod starts. If you have other UE4SS mods installed, merge the entries manually.
-5. Launch the game! Press **F4** to open the connection panel, enter your server details, and press **F3** to connect.
+   > **Note:** This replaces `Mods\mods.txt` and `UE4SS-settings.ini`. `mods.txt` makes `CrabInvMngmt` load before `CrabChampionsAP` so the C++ inventory functions are available when the Lua mod starts. If you have other UE4SS mods installed, add their lines back to `mods.txt` above the `Keybinds` line.
+4. Launch the game! Press **F4** to open the connection panel, enter your server details, and press **F3** to connect.
    - Your connection details are saved automatically after a successful connection, so you only need to enter them once.
 
 ## Configuration Options
@@ -280,7 +285,11 @@ With the maximum settings selected, there are about 15,100 possible checks.
 ## Bugs
 - None so far!  Report any issues you find in the Discord thread or on GitHub.
 
+## Building a release
+
+`python tools/build_release.py` builds `dist/CrabChampionsAP_v<version>.zip` from the committed files at `HEAD` (`--ref` picks another commit or tag), with the bundled UE4SS from `third_party/UE4SS/`.
+
 ## Credits
 
 - **Author**: Str8UpWHITE64
-- Built with [Archipelago](https://archipelago.gg/) and [UE4SS](https://docs.ue4ss.com/)
+- Built with [Archipelago](https://archipelago.gg/) and [UE4SS](https://docs.ue4ss.com/) (bundled under the MIT License, copyright (c) 2022 Narknon)

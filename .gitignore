@@ -4,3 +4,4 @@
 pickup_tags.txt
 *.zip
 __pycache__/
+/dist/

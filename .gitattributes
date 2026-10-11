@@ -1,0 +1,2 @@
+# Bundled third-party files ship byte-for-byte as upstream released them.
+third_party/** -text
