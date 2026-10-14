@@ -49,6 +49,10 @@ M._granted = {}
 -- Items received mid-run are tracked but not spawned until lobby return.
 M.in_lobby = true
 
+-- Set by a mid-run reset: which received items the run already had, so the
+-- replay restores those instead of drawing again. { n = count, granted = set }
+local resume = nil
+
 -- Queue for items waiting to be spawned (processed sequentially, fallback only)
 local spawn_queue = {}
 local spawn_busy = false
@@ -95,18 +99,44 @@ local crystal_flush_scheduled = false
 -- Reset: clear all state for a fresh connection
 -------------------------------------------------------------
 
+--- True when the game is in the lobby. A run is told apart by the lobby
+--- pickups being gone while CrabGS reports an island; anything unclear counts
+--- as the lobby, which is the safe default for a fresh launch.
+local function detect_in_lobby()
+    local ok, actors = pcall(FindAllOf, "BP_Pickup_Lobby_C")
+    if ok and actors and #actors > 0 then return true end
+    local island = safe(function()
+        local gs = FindFirstOf("CrabGS")
+        if gs and gs:IsValid() then return tonumber(gs.CurrentIsland) end
+        return nil
+    end, nil)
+    return not (island and island > 0)
+end
+
 --- Reset all item tracking state and clear the player's inventory.
 --- Call on (re)connect before items are reprocessed to prevent duplicates.
 function M.reset()
     log("Resetting item state for fresh connection...")
+
+    -- Keep the real lobby/run state. Mid-run, remember what the run had so
+    -- the replay restores it rather than rolling a new start draw.
+    local in_lobby = detect_in_lobby()
+    if not in_lobby then
+        -- A second drop before the replay finished keeps the first snapshot.
+        if not (resume and #M._run_items < resume.n) then
+            resume = { n = #M._run_items, granted = M._granted }
+        end
+    else
+        resume = nil
+    end
 
     -- Clear tracking tables
     M.unlocked = {}
     M._run_items = {}
     M._run_crystals = 0
     M._granted = {}
-    M.in_lobby = true
-    draw_pending = true
+    M.in_lobby = in_lobby
+    draw_pending = in_lobby
     draw_generation = draw_generation + 1
 
     -- Clear all queues
@@ -697,6 +727,7 @@ end
 --- connect re-send has settled.
 local function start_run_draw()
     draw_pending = false
+    resume = nil
     M._granted = {}
     local start_pct = draw_percentages()
     local pool = draw_pool(false)
@@ -892,6 +923,9 @@ function M.apply_item(ap_item_id)
     -- later arrivals get the same odds the draw gave everything else, so
     -- waiting in the lobby doesn't get around it.
     local start_pct = draw_percentages()
+    if resume and not M.in_lobby and idx <= resume.n and not resume.granted[idx] then
+        return  -- the run never had this one; later arrivals fall through
+    end
     if start_pct >= 100 or not M.in_lobby then
         grant(idx)
         if not has_cpp_mod() and not M.in_lobby then
