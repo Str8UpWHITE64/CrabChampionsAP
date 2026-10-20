@@ -543,6 +543,9 @@ end
 -- Wire up the forward declaration now that the function exists
 _on_item_received_for_descriptions = on_item_received_for_descriptions
 
+-- seed/slot of the last slot connect, to tell a reconnect from a new session
+local last_connect_identity = nil
+
 local function on_slot_connected(slot_data)
     clog("STATUS", "Slot data received")
 
@@ -551,24 +554,33 @@ local function on_slot_connected(slot_data)
     received_da_set = {}
     location_to_da = {}
 
-    -- Reset item state and clear inventory to prevent duplicates on reconnect.
-    -- All items will be re-sent by the server and re-applied fresh.
-    ItemApply.reset()
+    -- Same seed and slot as the last connect: keep the inventory. The server
+    -- re-sends every item and only the difference is applied, so a dropped
+    -- connection no longer wipes and rebuilds what the player holds. A first
+    -- connect, or a different seed or slot, starts from an empty inventory.
+    local identity = tostring(slot_data and slot_data.seed) .. "/" .. tostring(APClient.slot)
+    local same_session = (last_connect_identity == identity)
+    last_connect_identity = identity
+    ItemApply.reset({ soft = same_session })
 
-    -- Reset equip_lock allowed sets so they're rebuilt from slot_data
-    local el = _G.AP and _G.AP.equip_lock or nil
-    if el then
-        el.allowed = { weapon = {}, ability = {}, melee = {} }
-    end
+    if not same_session then
+        -- Reset equip_lock allowed sets so they're rebuilt from slot_data
+        local el = _G.AP and _G.AP.equip_lock or nil
+        if el then
+            el.allowed = { weapon = {}, ability = {}, melee = {} }
+        end
 
-    -- Reset inv_sanitize allowed sets so they're rebuilt from received items
-    local is = _G.AP and _G.AP.inv_sanitize or nil
-    if is then
-        is.allowed_perk_full = {}
-        is.allowed_relic_full = {}
-        is.allowed_weapon_mod_full = {}
-        is.allowed_ability_mod_full = {}
-        is.allowed_melee_mod_full = {}
+        -- Reset inv_sanitize allowed sets so they're rebuilt from received items.
+        -- On a soft reconnect they stay: the items are still in the inventory and
+        -- the sanitizer would strip them while the re-send is still arriving.
+        local is = _G.AP and _G.AP.inv_sanitize or nil
+        if is then
+            is.allowed_perk_full = {}
+            is.allowed_relic_full = {}
+            is.allowed_weapon_mod_full = {}
+            is.allowed_ability_mod_full = {}
+            is.allowed_melee_mod_full = {}
+        end
     end
 
     -- Save working connection info so it auto-loads next launch

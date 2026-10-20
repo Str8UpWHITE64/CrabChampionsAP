@@ -57,32 +57,25 @@ local resume = nil
 local spawn_queue = {}
 local spawn_busy = false
 
---- A pending-item aggregate: `list` holds one entry per item name in arrival
---- order, `index` maps name -> entry so later copies merge into the stack
---- already waiting instead of queueing behind everything received in between.
-local function new_aggregate()
-    return { list = {}, index = {} }
+-- Inventory ledger. The inventory is never wiped on a reconnect; instead this
+-- run's items are tracked as levels per item and only the difference is applied.
+--   want[full_name]  levels this run should hold (the draw plus mid-run arrivals)
+--   have[full_name]  levels already delivered into the inventory
+-- Waiting for a free slot is simply want > have, so there is no separate
+-- overflow queue to lose or double-apply.
+local want = {}
+local want_order = {}     -- full_names in first-grant order, so older waits go first
+local have = {}
+local info_by_name = {}   -- full_name -> item info, every received item this session
+local flushing = false    -- a batch is being applied; a second flush must not start
+local flush_again = false
+local flush_scheduled = false
+local apply_generation = 0  -- bumped by a hard reset to abandon a batch in flight
+
+local function want_clear()
+    want = {}
+    want_order = {}
 end
-
--- Received C++ mod items waiting to be applied, aggregated by item name.
-local cpp_pending = new_aggregate()
-local cpp_flush_scheduled = false
-
--- Per-type overflow queues for items that failed due to full inventory.
--- Keyed by array name so each inventory type retries independently.
-local cpp_overflow_queues = {
-    Perks = {},
-    Relics = {},
-    WeaponMods = {},
-    MeleeMods = {},
-    AbilityMods = {},
-}
-
--- Fixed iteration order so the work list is deterministic across flushes.
-local CPP_QUEUE_NAMES = { "Perks", "Relics", "WeaponMods", "MeleeMods", "AbilityMods" }
-
--- Set while an overflow retry owns the overflow queues.
-local overflow_retry_running = false
 
 -- True from a (re)connect until the first draw. The server re-sends every
 -- received item on connect, so the draw waits until they stop arriving.
@@ -90,9 +83,12 @@ local draw_pending = false
 local draw_generation = 0
 local DRAW_SETTLE_MS = 1500
 
--- Crystal batching state. Declared up here so M.reset() clears these rather
--- than creating same-named globals.
-local crystal_pending = 0
+-- Fixed iteration order for the C++ array names.
+local CPP_QUEUE_NAMES = { "Perks", "Relics", "WeaponMods", "MeleeMods", "AbilityMods" }
+
+-- Crystals: M._run_crystals is what the server has sent, crystals_applied is
+-- how much of that the player was already given. Only the difference is granted.
+local crystals_applied = 0
 local crystal_flush_scheduled = false
 
 -------------------------------------------------------------
@@ -113,10 +109,16 @@ local function detect_in_lobby()
     return not (island and island > 0)
 end
 
---- Reset all item tracking state and clear the player's inventory.
---- Call on (re)connect before items are reprocessed to prevent duplicates.
-function M.reset()
-    log("Resetting item state for fresh connection...")
+--- Reset item tracking for a (re)connect.
+---
+--- A soft reset (opts.soft) is for reconnecting to the same seed and slot. The
+--- inventory and crystals are left alone: the server re-sends every item, the
+--- ledger of what was already delivered survives, and only the difference is
+--- applied. A hard reset (the default; first connect, or a different seed or
+--- slot) also empties the inventory and crystals and forgets the ledger.
+function M.reset(opts)
+    local soft = opts and opts.soft == true
+    log("Resetting item state for " .. (soft and "reconnect (inventory kept)..." or "fresh connection..."))
 
     -- Keep the real lobby/run state. Mid-run, remember what the run had so
     -- the replay restores it rather than rolling a new start draw.
@@ -130,8 +132,8 @@ function M.reset()
         resume = nil
     end
 
-    -- Clear tracking tables
-    M.unlocked = {}
+    -- Clear per-connection tracking; the server re-sends everything.
+    if not soft then M.unlocked = {} end
     M._run_items = {}
     M._run_crystals = 0
     M._granted = {}
@@ -139,34 +141,37 @@ function M.reset()
     draw_pending = in_lobby
     draw_generation = draw_generation + 1
 
-    -- Clear all queues
-    cpp_pending = new_aggregate()
-    cpp_flush_scheduled = false
     spawn_queue = {}
     spawn_busy = false
-    crystal_pending = 0
     crystal_flush_scheduled = false
-    overflow_retry_running = false
-    for queue_name, _ in pairs(cpp_overflow_queues) do
-        cpp_overflow_queues[queue_name] = {}
-    end
 
-    -- Clear inventory arrays via C++ mod
-    if AP_ClearInventoryArray then
-        for _, arr_name in ipairs({"Perks", "WeaponMods", "AbilityMods", "MeleeMods", "Relics"}) do
-            pcall(AP_ClearInventoryArray, arr_name)
+    if not soft then
+        apply_generation = apply_generation + 1
+        want_clear()
+        have = {}
+        info_by_name = {}
+        flushing = false
+        flush_again = false
+        flush_scheduled = false
+        crystals_applied = 0
+        if AP_ClearInventoryArray then
+            for _, arr_name in ipairs({"Perks", "WeaponMods", "AbilityMods", "MeleeMods", "Relics"}) do
+                pcall(AP_ClearInventoryArray, arr_name)
+            end
+            pcall(AP_RefreshInventoryUI)
+            log("Cleared all inventory arrays")
         end
-        pcall(AP_RefreshInventoryUI)
-        log("Cleared all inventory arrays")
+        pcall(function()
+            local pss = FindAllOf("CrabPS")
+            if pss and #pss > 0 then
+                pss[1].Crystals = 0
+            end
+        end)
+    elseif in_lobby then
+        -- In the lobby the start draw is rolled again once the re-send settles,
+        -- so the old target goes; what was delivered stays in the ledger.
+        want_clear()
     end
-
-    -- Reset crystals to 0
-    pcall(function()
-        local pss = FindAllOf("CrabPS")
-        if pss and #pss > 0 then
-            pss[1].Crystals = 0
-        end
-    end)
 
     log("Item state reset complete")
 end
@@ -447,94 +452,107 @@ local function cpp_add_item(info, count)
 end
 
 -------------------------------------------------------------
--- Batch flush: apply queued C++ items in rate-limited chunks
+-- Ledger and batch flush: apply the difference between want and have
 -------------------------------------------------------------
 
-local FLUSH_BATCH_SIZE = 20       -- items per chunk
-local FLUSH_BATCH_DELAY_MS = 100  -- ms pause between chunks
+local FLUSH_BATCH_SIZE = 20          -- items per chunk
+local FLUSH_BATCH_DELAY_MS = 100     -- ms pause between chunks
+local OVERFLOW_BATCH_SIZE = 10       -- items per chunk during a retry
+local OVERFLOW_BATCH_DELAY_MS = 150  -- ms pause between retry chunks
 
---- Add `count` copies of an item to an aggregate, merging into the existing
---- entry for that name. Relics never merge — they don't stack in-game.
-local function aggregate_add(agg, info, count)
-    count = count or 1
-    local stackable = info.cat ~= ItemData.CATEGORY.RELIC
-    local entry = stackable and agg.index[info.name] or nil
-    if entry then
-        entry.count = entry.count + count
+--- Raise this run's target for an item by `count` levels.
+local function want_add(info, count)
+    local fn = info.full_name
+    info_by_name[fn] = info
+    if not want[fn] then
+        want[fn] = 0
+        want_order[#want_order + 1] = fn
+    end
+    want[fn] = want[fn] + count
+end
+
+--- Stacks still to apply: one per item name, oldest first, with the number of
+--- levels missing. This is also what used to be the overflow queue: an item
+--- with no free slot just stays missing until something frees one.
+local function pending_work()
+    local work = {}
+    for _, fn in ipairs(want_order) do
+        local diff = (want[fn] or 0) - (have[fn] or 0)
+        local info = info_by_name[fn]
+        if diff > 0 and info then
+            work[#work + 1] = { info = info, count = diff }
+        end
+    end
+    return work
+end
+
+--- Levels waiting on a free slot (or a flush that has not run yet).
+function M.overflow_count()
+    local total = 0
+    for _, entry in ipairs(pending_work()) do total = total + entry.count end
+    return total
+end
+
+--- Levels of every item currently in the inventory, by full name, or nil when
+--- the inventory cannot be read.
+local function observed_levels()
+    local ok, InvSan = pcall(require, "AP/InventorySanitize")
+    if not ok or not InvSan or not InvSan.build_inventory_snapshot then return nil end
+    local ps = M._get_ps()
+    if not ps then return nil end
+    local snap = safe(function() return InvSan.build_inventory_snapshot(ps) end, nil)
+    if not snap then return nil end
+    local levels = {}
+    for _, bucket in pairs(snap) do
+        for full_name, entry in pairs(bucket) do
+            levels[full_name] = tonumber(entry.level) or 1
+        end
+    end
+    return levels
+end
+
+--- Compare the real inventory with this run's target. Received items that
+--- are over the target are lowered with AP_RemoveInventoryItem; the ledger is
+--- set to what is really there, so anything short is applied by the next
+--- flush. Items the server never sent are not touched here.
+local function sync_inventory()
+    local observed = observed_levels()
+    if not observed then
+        have = {}   -- cannot read it: assume empty, as the old wipe did
         return
     end
-    entry = { info = info, count = count }
-    table.insert(agg.list, entry)
-    if stackable then
-        agg.index[info.name] = entry
-    end
-end
-
---- Build the list of stacks to apply: everything already waiting on a free
---- slot, then everything newly received, folded into one entry per item name.
---- Overflowed items lead because they arrived first. This is what makes
---- "10x Perk A, 10 other perks, 2x Perk A" apply as 12x Perk A and then the
---- rest, instead of leaving the last two stuck behind a full inventory.
-local function build_work_list(include_overflow)
-    local agg = new_aggregate()
-    if include_overflow then
-        for _, queue_name in ipairs(CPP_QUEUE_NAMES) do
-            local queue = cpp_overflow_queues[queue_name]
-            if queue then
-                for _, info in ipairs(queue) do
-                    aggregate_add(agg, info, 1)
-                end
-                cpp_overflow_queues[queue_name] = {}
+    local new_have, removed = {}, 0
+    for full_name, info in pairs(info_by_name) do
+        local cur = observed[full_name] or 0
+        local target = want[full_name] or 0
+        local arr_info = get_cpp_array_info(info.cat)
+        if cur > target and arr_info and AP_RemoveInventoryItem and info.da then
+            local ok, res = pcall(AP_RemoveInventoryItem, info.da:GetAddress(), arr_info[1], arr_info[2], cur - target)
+            if ok and res then
+                log("Lowered " .. info.name .. " " .. cur .. " -> " .. target)
+                cur = target
+                removed = removed + 1
             end
         end
+        new_have[full_name] = cur
     end
-    for _, entry in ipairs(cpp_pending.list) do
-        aggregate_add(agg, entry.info, entry.count)
-    end
-    cpp_pending = new_aggregate()
-    return agg.list
-end
-
---- Full names currently in the player's inventory. A stackable item is a
---- single array entry with a level count, so one that is already there needs
---- no free slot and can still be applied when its type is full.
-local function inventory_present_set()
-    local present = {}
-    local ok, InvSan = pcall(require, "AP/InventorySanitize")
-    if not ok or not InvSan or not InvSan.build_inventory_snapshot then return present end
-    local ps = M._get_ps()
-    if not ps then return present end
-    local snap = safe(function() return InvSan.build_inventory_snapshot(ps) end, nil)
-    if not snap then return present end
-    for _, bucket in pairs(snap) do
-        for full_name, _ in pairs(bucket) do
-            present[full_name] = true
-        end
-    end
-    return present
+    have = new_have
+    if removed > 0 then pcall(AP_RefreshInventoryUI) end
 end
 
 --- Apply a work list in rate-limited chunks to avoid overwhelming the engine.
---- Stacks whose inventory type has no free slots go back to overflow without a
---- C++ call, unless the item is already in the inventory and only needs a
---- level bump. Calls on_done(applied, overflowed) once the list is drained.
-local function process_work_list(work, batch_size, delay_ms, on_done)
-    local present = inventory_present_set()
+--- Stacks whose inventory type has no free slots stay missing in the ledger
+--- without a C++ call, unless the item is already in the inventory and only
+--- needs a level bump. Calls on_done(applied, waiting) once the list is drained.
+local function process_work_list(work, batch_size, delay_ms, gen, on_done)
+    local present = {}
+    for full_name in pairs(observed_levels() or {}) do present[full_name] = true end
     local known_full = {}
-    local applied, overflowed = 0, 0
+    local applied, waiting = 0, 0
     local idx = 1
 
-    local function to_overflow(info, count, queue_key)
-        local queue = cpp_overflow_queues[queue_key]
-        if queue then
-            for _ = 1, count do
-                table.insert(queue, info)
-            end
-        end
-        overflowed = overflowed + count
-    end
-
     local function process_batch()
+        if gen ~= apply_generation then return end  -- hard reset: abandon this batch
         local batch_end = math.min(idx + batch_size - 1, #work)
         local batch_applied = 0
 
@@ -546,15 +564,16 @@ local function process_work_list(work, batch_size, delay_ms, on_done)
             local stacks = info.cat ~= ItemData.CATEGORY.RELIC and present[info.full_name]
 
             if known_full[queue_key] and not stacks then
-                to_overflow(info, count, queue_key)
+                waiting = waiting + count
             elseif cpp_add_item(info, count) then
+                have[info.full_name] = (have[info.full_name] or 0) + count
                 applied = applied + count
                 batch_applied = batch_applied + 1
                 present[info.full_name] = true
             else
                 -- Mark this type as full so we stop hammering C++
                 known_full[queue_key] = true
-                to_overflow(info, count, queue_key)
+                waiting = waiting + count
             end
         end
 
@@ -565,7 +584,6 @@ local function process_work_list(work, batch_size, delay_ms, on_done)
 
         idx = batch_end + 1
         if idx <= #work then
-            -- More stacks remaining — schedule next batch after delay
             LoopAsync(delay_ms, function()
                 process_batch()
                 return true  -- run once
@@ -573,98 +591,84 @@ local function process_work_list(work, batch_size, delay_ms, on_done)
         else
             -- All done — sanitize to clean up any race condition artifacts
             sanitize_inventory()
-            on_done(applied, overflowed)
+            on_done(applied, waiting)
         end
     end
 
     process_batch()
 end
 
---- Flush everything waiting into the inventory, in rate-limited batches.
-local function flush_cpp_queue()
-    cpp_flush_scheduled = false
+local schedule_flush
 
-    -- Leave the overflow queues alone while a retry owns them.
-    local work = build_work_list(not overflow_retry_running)
+--- Apply everything missing, in batches. Only one flush runs at a time; a
+--- request made meanwhile reruns once it finishes, so two flushes never both
+--- add the same missing levels.
+local function flush(batch_size, delay_ms)
+    flush_scheduled = false
+    if not has_cpp_mod() then return end
+    if flushing then
+        flush_again = true
+        return
+    end
+    local work = pending_work()
     if #work == 0 then return end
 
-    log("Flushing " .. #work .. " item stacks via C++ mod (batch size " .. FLUSH_BATCH_SIZE .. ")...")
-    process_work_list(work, FLUSH_BATCH_SIZE, FLUSH_BATCH_DELAY_MS, function(applied, overflowed)
-        if overflowed > 0 then
-            log("Batch complete: " .. applied .. " applied, " .. overflowed
-                .. " waiting for free slots (" .. M.overflow_count() .. " total overflow)")
-        else
-            log("Batch complete: " .. applied .. " applied")
-        end
+    flushing = true
+    local gen = apply_generation
+    log("Flushing " .. #work .. " item stacks via C++ mod (batch size " .. (batch_size or FLUSH_BATCH_SIZE) .. ")...")
+    process_work_list(work, batch_size or FLUSH_BATCH_SIZE, delay_ms or FLUSH_BATCH_DELAY_MS, gen,
+        function(applied, waiting)
+            flushing = false
+            if waiting > 0 then
+                log("Batch complete: " .. applied .. " applied, " .. waiting
+                    .. " waiting for free slots (" .. M.overflow_count() .. " total waiting)")
+            else
+                log("Batch complete: " .. applied .. " applied")
+            end
+            if flush_again then
+                flush_again = false
+                schedule_flush()
+            end
+        end)
+end
+
+schedule_flush = function()
+    if flush_scheduled then return end
+    flush_scheduled = true
+    LoopAsync(200, function()
+        flush()
+        return true  -- run once
     end)
 end
 
-local OVERFLOW_BATCH_SIZE = 10       -- items per chunk during overflow retry
-local OVERFLOW_BATCH_DELAY_MS = 150  -- ms pause between overflow chunks
-
---- Retry everything waiting on a free slot, at a gentler cadence than a
---- normal flush since this runs mid-run. Newly received items are folded in
---- too, so a duplicate that arrived since the overflow is applied as part of
---- the same stack rather than on its own afterwards.
+--- Retry everything missing, at a gentler cadence than a normal flush since
+--- this runs mid-run. Items received since are part of the same difference.
 function M.retry_overflow()
     if M.overflow_count() == 0 then return end
     if not has_cpp_mod() then return end
-    if overflow_retry_running then return end  -- already in progress
-    overflow_retry_running = true
-
-    local work = build_work_list(true)
-    if #work == 0 then
-        overflow_retry_running = false
-        return
-    end
-
-    process_work_list(work, OVERFLOW_BATCH_SIZE, OVERFLOW_BATCH_DELAY_MS, function(applied)
-        overflow_retry_running = false
-        if applied > 0 then
-            log("Overflow retry complete: " .. applied .. " applied, "
-                .. M.overflow_count() .. " still waiting")
-        end
-    end)
+    flush(OVERFLOW_BATCH_SIZE, OVERFLOW_BATCH_DELAY_MS)
 end
 
---- Get the total number of items waiting across all overflow queues.
-function M.overflow_count()
-    local total = 0
-    for _, queue in pairs(cpp_overflow_queues) do
-        total = total + #queue
-    end
-    return total
-end
-
---- Queue an item for batch C++ application.
---- Schedules a flush after a short delay so rapid-fire items are batched.
+--- Raise the target for an item and schedule a flush so rapid-fire items batch.
 local function queue_cpp_item(info)
-    aggregate_add(cpp_pending, info, 1)
-    if not cpp_flush_scheduled then
-        cpp_flush_scheduled = true
-        LoopAsync(200, function()
-            flush_cpp_queue()
-            return true  -- run once
-        end)
-    end
+    want_add(info, 1)
+    schedule_flush()
 end
 
 -------------------------------------------------------------
--- Crystal batching: accumulate crystal amounts and grant once
--- (state is declared at the top of the file so M.reset() clears it)
+-- Crystals: grant only what the player has not been given yet
 -------------------------------------------------------------
 
 local function flush_crystals()
     crystal_flush_scheduled = false
-    if crystal_pending <= 0 then return end
-    local amount = crystal_pending
-    crystal_pending = 0
+    local amount = M._run_crystals - crystals_applied
+    if amount <= 0 then return end
+    crystals_applied = M._run_crystals
     M._grant_crystals(amount)
     log("Granted " .. amount .. " crystals (batched)")
 end
 
 local function queue_crystals(amount)
-    crystal_pending = crystal_pending + amount
     M._run_crystals = M._run_crystals + amount
     if not crystal_flush_scheduled then
         crystal_flush_scheduled = true
@@ -729,10 +733,14 @@ local function start_run_draw()
     draw_pending = false
     resume = nil
     M._granted = {}
+    want_clear()
     local start_pct = draw_percentages()
     local pool = draw_pool(false)
     local chosen = pick(pool, start_pct)
     for _, idx in ipairs(chosen) do grant(idx) end
+    -- Whatever the inventory already holds counts: only the difference is
+    -- added, and received items left over from before are lowered.
+    sync_inventory()
     if start_pct < 100 then
         log("Run start: " .. #chosen .. " of " .. #pool .. " received items (" .. start_pct .. "%)")
     end
@@ -868,6 +876,7 @@ function M.apply_item(ap_item_id)
     end
 
     M.unlocked[info.full_name] = true
+    info_by_name[info.full_name] = info
 
     -- granted_item_checks: receiving the item completes its pickup check.
     -- Done on receipt so it doesn't depend on the run draw or free slots.
@@ -923,8 +932,11 @@ function M.apply_item(ap_item_id)
     -- later arrivals get the same odds the draw gave everything else, so
     -- waiting in the lobby doesn't get around it.
     local start_pct = draw_percentages()
-    if resume and not M.in_lobby and idx <= resume.n and not resume.granted[idx] then
-        return  -- the run never had this one; later arrivals fall through
+    if resume and not M.in_lobby and idx <= resume.n then
+        -- A replayed item the run already had is already in the target and
+        -- the inventory; one it never had stays out. Later arrivals fall through.
+        if resume.granted[idx] then M._granted[idx] = true end
+        return
     end
     if start_pct >= 100 or not M.in_lobby then
         grant(idx)
@@ -946,15 +958,10 @@ end
 --- for a new run. Weapons/abilities/melee are persistent unlocks and don't
 --- need re-application.
 function M.reapply_run_items()
-    -- Clear overflow queues — all overflow items are already tracked in _run_items
-    -- and will be re-added fresh below. Without this, overflow items get double-applied.
-    for queue_name, _ in pairs(cpp_overflow_queues) do
-        cpp_overflow_queues[queue_name] = {}
-    end
-
     -- Re-grant accumulated crystals
     if M._run_crystals > 0 then
         log("Re-granting " .. M._run_crystals .. " crystals for new run")
+        crystals_applied = M._run_crystals
         M._grant_crystals(M._run_crystals)
     end
 
@@ -976,7 +983,7 @@ function M.reapply_run_items()
     start_run_draw()
     if has_cpp_mod() then
         -- Flush immediately for re-apply (no need to wait)
-        flush_cpp_queue()
+        flush()
     end
 end
 
