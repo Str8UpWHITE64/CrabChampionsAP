@@ -765,7 +765,6 @@ local function on_slot_connected(slot_data)
     -- Update overlay
     if APOverlay then
         APOverlay.set_connected(APClient.slot or "Connected")
-        APOverlay.hide_panel()
         APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, APClient)
     end
 
@@ -1052,7 +1051,7 @@ if console_ok then
     Console = ConsoleModule
     Console.init(APClient, config_path)
     AP.Console = Console
-    log("Console controls loaded (F6/F7/F8)")
+    log("Console controls loaded (F7/F8)")
 else
     log("Console module not available: " .. tostring(ConsoleModule))
 end
@@ -1095,11 +1094,44 @@ RegisterKeyBind(Key.F3, function()
                 if password then APClient.password = password end
             end
             log("Connecting to " .. tostring(APClient.server) .. " as '" .. tostring(APClient.slot) .. "'...")
-            if APOverlay then APOverlay.set_connecting() end
+            if APOverlay then APOverlay.set_connecting(APClient.server) end
             APClient:queue_command("connect")
         end
     end)
 end)
+
+-- What the panel shows while connected, and what to do when the server never answers.
+if APOverlay and APOverlay.set_info_provider then
+    APOverlay.set_info_provider(function()
+        local checked = 0
+        for _ in pairs(APClient._checked or {}) do checked = checked + 1 end
+        return {
+            server = APClient.server,
+            slot = APClient.slot,
+            seed = APClient.slot_data and APClient.slot_data.seed or nil,
+            items = math.max(0, (APClient._applied_index or -1) + 1),
+            checked = checked,
+        }
+    end)
+    APOverlay.set_timeout_handler(function(msg)
+        APClient:queue_command("disconnect", { reason = msg })
+    end)
+end
+
+-- Close the panel (and give the pointer back) when a run starts or ends, or the player is eliminated.
+do
+    local last_lobby = nil
+    if APOverlay and APOverlay.set_release_check then
+        APOverlay.set_release_check(function(reset)
+            local in_lobby = ItemApply and ItemApply.in_lobby
+            if reset or last_lobby == nil then last_lobby = in_lobby return false end
+            if in_lobby ~= last_lobby then last_lobby = in_lobby return true end
+            local pc = FindFirstOf("CrabPlayerC")
+            if pc and pc:IsValid() and pc.bIsEliminated == true then return true end
+            return false
+        end)
+    end
+end
 
 -- Recreate overlay on level transitions
 pcall(function()

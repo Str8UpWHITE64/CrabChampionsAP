@@ -3,7 +3,6 @@
 -- Provides keybind controls and categorized logging via the UE4SS debug console.
 --
 -- Keybinds:
---   F6 = Toggle AP connection (connect / disconnect)
 --   F7 = Reload config from ap_config.json
 --   F8 = Print status summary
 
@@ -87,16 +86,6 @@ end
 -- Keybind handlers
 ------------------------------------------------------------
 
-local function on_toggle_connection()
-    if client:is_connected() or client:is_slot_connected() then
-        Console.log("CMD", "Disconnecting from AP server...")
-        client:queue_command("disconnect")
-    else
-        Console.log("CMD", "Connecting to AP server...")
-        client:queue_command("connect")
-    end
-end
-
 local function on_reload_config()
     Console.log("CMD", "Reloading config from ap_config.json...")
     client:queue_command("reload_config")
@@ -117,7 +106,6 @@ function Console.init(ap_client, cfg_path)
     client = ap_client
 
     -- Register keybinds
-    RegisterKeyBind(Key.F6, on_toggle_connection)
     RegisterKeyBind(Key.F7, on_reload_config)
     RegisterKeyBind(Key.F8, on_print_status)
 
@@ -125,7 +113,6 @@ function Console.init(ap_client, cfg_path)
     Console.log("INFO", "=== Archipelago Controls ===")
     Console.log("INFO", "  F3 = Connect/Disconnect (overlay)")
     Console.log("INFO", "  F4 = Toggle AP overlay panel")
-    Console.log("INFO", "  F6 = Toggle connection (console)")
     Console.log("INFO", "  F7 = Reload config")
     Console.log("INFO", "  F8 = Show status")
     Console.log("INFO", "Open console with ~ (tilde)")

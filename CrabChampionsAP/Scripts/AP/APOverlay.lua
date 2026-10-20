@@ -5,6 +5,8 @@
 
 local APOverlay = {}
 
+local ConnStatus = require("AP/ConnStatus")
+
 local UEHelpers = nil
 pcall(function() UEHelpers = require("UEHelpers") end)
 
@@ -57,6 +59,8 @@ local overlay = {
 
     -- Buttons
     connect_btn_text = nil,
+    error_text = nil,    -- plain-words reason the last connect failed
+    info_text = nil,     -- slot, seed, counts while connected
 
     -- Equipment progress
     equip_weapons_text = nil,
@@ -72,13 +76,16 @@ local overlay = {
 
     -- State
     visible = false,
+    state = "idle",      -- idle | connecting | connected
+    connecting_since = nil,
+    connect_server = nil,
     connected = false,
     initialized = false,
 }
 
 -- Recent item log lines (for connection panel)
 local item_log_lines = {}
-local MAX_LOG_LINES = 8
+local MAX_LOG_LINES = 5
 
 -- Item feed entries (timed, auto-remove)
 local feed_entries = {}
@@ -118,6 +125,8 @@ local function is_alive()
         overlay.slot_input = nil
         overlay.password_input = nil
         overlay.connect_btn_text = nil
+        overlay.error_text = nil
+        overlay.info_text = nil
         overlay.equip_weapons_text = nil
         overlay.equip_melee_text = nil
         overlay.equip_abilities_text = nil
@@ -166,7 +175,16 @@ local function set_text(widget, text)
     end
 end
 
-local MAX_LINE_CHARS = 60
+-- What each text widget currently shows, by overlay field name. Kept in Lua so the harness
+-- (and tests) can read it back without touching widgets.
+local shown = {}
+
+local function put(key, text)
+    shown[key] = text or ""
+    set_text(overlay[key], text)
+end
+
+local MAX_LINE_CHARS = 55
 
 --- Wrap a line to MAX_LINE_CHARS, breaking at word boundaries with indented continuation.
 local function wrap_line(line)
@@ -243,11 +261,11 @@ function APOverlay.create(ap_config)
     -- Status bar (top-right corner, always visible)
     -- =================================================================
     overlay.status_border = make("/Script/UMG.Border", overlay.canvas, "APStatusBorder")
-    pcall(function() overlay.status_border:SetBrushColor(FLinearColor(0.05, 0.05, 0.05, 0.7)) end)
+    pcall(function() overlay.status_border:SetBrushColor(FLinearColor(0.02, 0.02, 0.04, 0.92)) end)
     pcall(function() overlay.status_border:SetPadding({ Left = 12, Top = 6, Right = 12, Bottom = 6 }) end)
 
     overlay.status_text = make_text(overlay.status_border, "APStatusText",
-        "AP: Disconnected", 16, { 1, 0.3, 0.3, 1 })
+        "AP: Disconnected", 20, { 1, 0.4, 0.4, 1 })
     if overlay.status_text then
         pcall(function() overlay.status_border:SetContent(overlay.status_text) end)
     end
@@ -276,6 +294,7 @@ function APOverlay.create(ap_config)
     end
 
     APOverlay._start_feed_timer()
+    APOverlay._start_info_timer()
 
     -- =================================================================
     -- Connection panel (centered, toggled with key)
@@ -292,20 +311,23 @@ function APOverlay.create(ap_config)
         "Archipelago Connection", 20, { 0.4, 0.8, 1, 1 })
     if title then overlay.conn_vbox:AddChildToVerticalBox(title) end
 
+    overlay.info_text = make_text(overlay.conn_vbox, "APInfoText", "", 14, { 0.6, 1, 0.7, 1 })
+    if overlay.info_text then overlay.conn_vbox:AddChildToVerticalBox(overlay.info_text) end
+
     add_spacer(overlay.conn_vbox, "APSpacer1", 10)
 
     -- Server row
     local server_row = make("/Script/UMG.HorizontalBox", overlay.conn_vbox, "APServerRow")
     if server_row then
-        local lbl = make_text(server_row, "APServerLabel", "Server:    ", 14, { 0.8, 0.8, 0.8, 1 })
+        local lbl = make_text(server_row, "APServerLabel", "Server:    ", 16, { 0.9, 0.9, 0.9, 1 })
         if lbl then server_row:AddChildToHorizontalBox(lbl) end
 
         overlay.server_input = make("/Script/UMG.EditableTextBox", server_row, "APServerInput")
         if overlay.server_input then
             pcall(function()
                 overlay.server_input:SetText(FText(ap_config and ap_config.server or "localhost:38281"))
-                overlay.server_input.WidgetStyle.Font.Size = 14
-                overlay.server_input.MinimumDesiredWidth = 250
+                overlay.server_input.WidgetStyle.Font.Size = 16
+                overlay.server_input.MinimumDesiredWidth = 300
             end)
             server_row:AddChildToHorizontalBox(overlay.server_input)
         end
@@ -317,15 +339,15 @@ function APOverlay.create(ap_config)
     -- Slot row
     local slot_row = make("/Script/UMG.HorizontalBox", overlay.conn_vbox, "APSlotRow")
     if slot_row then
-        local lbl = make_text(slot_row, "APSlotLabel", "Slot:         ", 14, { 0.8, 0.8, 0.8, 1 })
+        local lbl = make_text(slot_row, "APSlotLabel", "Slot:         ", 16, { 0.9, 0.9, 0.9, 1 })
         if lbl then slot_row:AddChildToHorizontalBox(lbl) end
 
         overlay.slot_input = make("/Script/UMG.EditableTextBox", slot_row, "APSlotInput")
         if overlay.slot_input then
             pcall(function()
                 overlay.slot_input:SetText(FText(ap_config and ap_config.slot or ""))
-                overlay.slot_input.WidgetStyle.Font.Size = 14
-                overlay.slot_input.MinimumDesiredWidth = 250
+                overlay.slot_input.WidgetStyle.Font.Size = 16
+                overlay.slot_input.MinimumDesiredWidth = 300
             end)
             slot_row:AddChildToHorizontalBox(overlay.slot_input)
         end
@@ -337,15 +359,15 @@ function APOverlay.create(ap_config)
     -- Password row
     local pw_row = make("/Script/UMG.HorizontalBox", overlay.conn_vbox, "APPwRow")
     if pw_row then
-        local lbl = make_text(pw_row, "APPwLabel", "Password: ", 14, { 0.8, 0.8, 0.8, 1 })
+        local lbl = make_text(pw_row, "APPwLabel", "Password: ", 16, { 0.9, 0.9, 0.9, 1 })
         if lbl then pw_row:AddChildToHorizontalBox(lbl) end
 
         overlay.password_input = make("/Script/UMG.EditableTextBox", pw_row, "APPwInput")
         if overlay.password_input then
             pcall(function()
                 overlay.password_input:SetText(FText(ap_config and ap_config.password or ""))
-                overlay.password_input.WidgetStyle.Font.Size = 14
-                overlay.password_input.MinimumDesiredWidth = 250
+                overlay.password_input.WidgetStyle.Font.Size = 16
+                overlay.password_input.MinimumDesiredWidth = 300
                 overlay.password_input.IsPassword = true
             end)
             pw_row:AddChildToHorizontalBox(overlay.password_input)
@@ -361,12 +383,15 @@ function APOverlay.create(ap_config)
         hint_border:SetBrushColor(FLinearColor(0.15, 0.35, 0.55, 0.9))
         hint_border:SetPadding({ Left = 15, Top = 8, Right = 15, Bottom = 8 })
         overlay.connect_btn_text = make_text(hint_border, "APConnectHintText",
-            "Press F3 to Connect", 16, { 1, 1, 1, 1 })
+            "Press F3 to Connect   (F4 closes this window)", 16, { 1, 1, 1, 1 })
         if overlay.connect_btn_text then
             hint_border:SetContent(overlay.connect_btn_text)
         end
         overlay.conn_vbox:AddChildToVerticalBox(hint_border)
     end
+
+    overlay.error_text = make_text(overlay.conn_vbox, "APErrorText", "", 15, { 1, 0.55, 0.45, 1 })
+    if overlay.error_text then overlay.conn_vbox:AddChildToVerticalBox(overlay.error_text) end
 
     add_spacer(overlay.conn_vbox, "APSpacer5", 12)
 
@@ -380,19 +405,19 @@ function APOverlay.create(ap_config)
     add_spacer(overlay.conn_vbox, "APSpacer6", 5)
 
     overlay.equip_weapons_text = make_text(overlay.conn_vbox, "APEquipWeapons",
-        "(connect to see weapons)", 11, { 0.7, 0.7, 0.7, 1 })
+        "(connect to see weapons)", 12, { 0.7, 0.7, 0.7, 1 })
     if overlay.equip_weapons_text then
         overlay.conn_vbox:AddChildToVerticalBox(overlay.equip_weapons_text)
     end
 
     overlay.equip_melee_text = make_text(overlay.conn_vbox, "APEquipMelee",
-        "", 11, { 0.7, 0.7, 0.7, 1 })
+        "", 12, { 0.7, 0.7, 0.7, 1 })
     if overlay.equip_melee_text then
         overlay.conn_vbox:AddChildToVerticalBox(overlay.equip_melee_text)
     end
 
     overlay.equip_abilities_text = make_text(overlay.conn_vbox, "APEquipAbilities",
-        "", 11, { 0.7, 0.7, 0.7, 1 })
+        "", 12, { 0.7, 0.7, 0.7, 1 })
     if overlay.equip_abilities_text then
         overlay.conn_vbox:AddChildToVerticalBox(overlay.equip_abilities_text)
     end
@@ -415,7 +440,7 @@ function APOverlay.create(ap_config)
     if log_label then overlay.conn_vbox:AddChildToVerticalBox(log_label) end
 
     overlay.item_log_text = make_text(overlay.conn_vbox, "APLogText",
-        "(none)", 11, { 0.7, 0.9, 0.7, 1 })
+        "(none)", 12, { 0.7, 0.9, 0.7, 1 })
     if overlay.item_log_text then
         overlay.conn_vbox:AddChildToVerticalBox(overlay.item_log_text)
     end
@@ -458,7 +483,7 @@ function APOverlay.create(ap_config)
 
     -- Re-apply item log
     if #item_log_lines > 0 and overlay.item_log_text then
-        set_text(overlay.item_log_text, table.concat(item_log_lines, "\n"))
+        put("item_log_text", table.concat(item_log_lines, "\n"))
     end
 end
 
@@ -473,25 +498,144 @@ function APOverlay.is_initialized()
     return overlay.initialized
 end
 
+-- ----------------------------------------------------------------------------
+-- Pointer and click input while the panel is open.
+-- The game plays in game-only input, so the pointer is off and the boxes cannot
+-- be clicked. Opening the panel turns the pointer and click events on, switches
+-- to game-and-UI input with the first box focused, and ignores camera look.
+-- Closing it puts back exactly what was there. If the pointer is already on
+-- (the pause menu or another screen has input), nothing is changed and nothing
+-- is restored, so the panel never fights it.
+-- ----------------------------------------------------------------------------
+
+local cursor_state = nil   -- { pc, show, click, over, mode_set, look_ignored } when this module changed input
+local release_check = nil  -- function() -> true when the panel should close itself (run start, death...)
+
+local function get_pc()
+    local pc = nil
+    pcall(function() pc = FindFirstOf("CrabPC") end)
+    if pc then
+        local ok, v = pcall(function() return pc:IsValid() end)
+        if ok and v then return pc end
+    end
+    return nil
+end
+
+local function read_flag(pc, name)
+    local ok, v = pcall(function() return pc[name] end)
+    if ok and type(v) == "boolean" then return v end
+    return nil
+end
+
+local function capture_input()
+    if cursor_state then return end
+    local pc = get_pc()
+    if not pc then return end
+    if read_flag(pc, "bShowMouseCursor") == true then
+        log("Pointer already on (pause menu or other screen) - leaving input alone")
+        return
+    end
+    local st = {
+        pc = pc,
+        show = read_flag(pc, "bShowMouseCursor"),
+        click = read_flag(pc, "bEnableClickEvents"),
+        over = read_flag(pc, "bEnableMouseOverEvents"),
+    }
+    pcall(function() pc.bShowMouseCursor = true end)
+    pcall(function() pc.bEnableClickEvents = true end)
+    pcall(function() pc.bEnableMouseOverEvents = true end)
+    pcall(function() pc:SetIgnoreLookInput(true); st.look_ignored = true end)
+    pcall(function()
+        local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+        if lib and overlay.server_input then
+            lib:SetInputMode_GameAndUIEx(pc, overlay.server_input, 0, false)
+            st.mode_set = true
+        end
+    end)
+    cursor_state = st
+    log("Pointer on for the panel (UI input " .. tostring(st.mode_set) .. ")")
+end
+
+local function release_input()
+    local st = cursor_state
+    if not st then return end
+    cursor_state = nil
+    local pc = st.pc
+    local ok, v = pcall(function() return pc:IsValid() end)
+    if not (ok and v) then return end   -- level changed: the new controller starts clean
+    if st.mode_set then
+        pcall(function()
+            local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+            if lib then lib:SetInputMode_GameOnly(pc) end
+        end)
+    end
+    if st.look_ignored then pcall(function() pc:SetIgnoreLookInput(false) end) end
+    if st.show ~= nil then pcall(function() pc.bShowMouseCursor = st.show end) end
+    if st.click ~= nil then pcall(function() pc.bEnableClickEvents = st.click end) end
+    if st.over ~= nil then pcall(function() pc.bEnableMouseOverEvents = st.over end) end
+    log("Pointer restored")
+end
+
+--- True while this module has the pointer switched on.
+function APOverlay.pointer_captured()
+    return cursor_state ~= nil
+end
+
+--- main.lua gives a function that returns true when the panel must close by itself.
+function APOverlay.set_release_check(fn)
+    release_check = fn
+end
+
+local function start_input_watchdog()
+    if release_check then pcall(release_check, true) end   -- remember the state at open
+    LoopAsync(500, function()
+        if not cursor_state then return true end   -- nothing to watch; stop until the next open
+        local pc_ok = false
+        pcall(function() pc_ok = cursor_state.pc:IsValid() end)
+        local stop = not pc_ok
+        if not stop and release_check then
+            local ok, r = pcall(release_check)
+            stop = ok and r == true
+        end
+        if stop then
+            -- hide_panel releases the pointer; ExecuteInGameThread keeps widget calls on the game thread
+            ExecuteInGameThread(function() APOverlay.hide_panel() end)
+            return true
+        end
+        return false
+    end)
+end
+
+local function set_panel(shown)
+    panel_shown = shown
+    pcall(function()
+        overlay.conn_panel:SetVisibility(shown and VIS_VISIBLE or VIS_HIDDEN)
+    end)
+    if shown then
+        capture_input()
+        if cursor_state then start_input_watchdog() end
+    else
+        release_input()
+    end
+end
+
 function APOverlay.toggle_panel()
     if not is_alive() or not overlay.conn_panel then return end
-    panel_shown = not panel_shown
-    pcall(function()
-        overlay.conn_panel:SetVisibility(panel_shown and VIS_VISIBLE or VIS_HIDDEN)
-    end)
+    set_panel(not panel_shown)
     log("Connection panel " .. (panel_shown and "shown" or "hidden"))
 end
 
 function APOverlay.show_panel()
     if not is_alive() or not overlay.conn_panel then return end
-    panel_shown = true
-    pcall(function() overlay.conn_panel:SetVisibility(VIS_VISIBLE) end)
+    if panel_shown then return end
+    set_panel(true)
 end
 
 function APOverlay.hide_panel()
-    if not is_alive() or not overlay.conn_panel then return end
-    panel_shown = false
-    pcall(function() overlay.conn_panel:SetVisibility(VIS_HIDDEN) end)
+    if not overlay.conn_panel then release_input() return end
+    -- release even when the widgets died, so the pointer never sticks
+    if not is_alive() then release_input() panel_shown = false return end
+    set_panel(false)
 end
 
 function APOverlay.set_status(text, r, g, b)
@@ -500,7 +644,7 @@ function APOverlay.set_status(text, r, g, b)
         return
     end
     if overlay.status_text then
-        set_text(overlay.status_text, text)
+        put("status_text", text)
         if r and g and b then
             pcall(function()
                 overlay.status_text:SetColorAndOpacity(FSlateColor(r, g, b, 1))
@@ -509,43 +653,119 @@ function APOverlay.set_status(text, r, g, b)
     end
 end
 
+local HINT_IDLE = "Press F3 to Connect   (F4 closes this window)"
+local HINT_CONNECTED = "Press F3 to Disconnect   (F4 closes this window)"
+local HINT_CONNECTING = "Connecting...   (F3 to try again)"
+
+local timeout_handler = nil
+local conn_gen = 0
+local info_gen = 0
+local info_provider = nil
+
+--- Reset everything that belongs to a connection: checklist, victory line and message log.
+function APOverlay.clear_progress()
+    item_log_lines = {}
+    put("equip_weapons_text", "(connect to see weapons)")
+    put("equip_melee_text", "")
+    put("equip_abilities_text", "")
+    put("victory_summary_text", "")
+    put("item_log_text", "(none)")
+    put("info_text", "")
+end
+
+--- main.lua supplies a function returning { server, slot, seed, items, checked }.
+function APOverlay.set_info_provider(fn)
+    info_provider = fn
+end
+
+--- main.lua supplies what to do when the server never answers (it queues a disconnect with the message).
+function APOverlay.set_timeout_handler(fn)
+    timeout_handler = fn
+end
+
+function APOverlay.refresh_info()
+    if overlay.state ~= "connected" or not info_provider then
+        put("info_text", "")
+        return
+    end
+    local ok, d = pcall(info_provider)
+    put("info_text", ok and ConnStatus.info_text(d) or "")
+end
+
+function APOverlay._start_info_timer()
+    info_gen = info_gen + 1
+    local mine = info_gen
+    LoopAsync(2000, function()
+        if mine ~= info_gen or not is_alive() then return true end
+        if panel_shown then APOverlay.refresh_info() end
+        return false
+    end)
+end
+
+local function start_timeout_watch()
+    conn_gen = conn_gen + 1
+    local mine = conn_gen
+    LoopAsync(1000, function()
+        if mine ~= conn_gen or overlay.state ~= "connecting" then return true end
+        if ConnStatus.timed_out(overlay.connecting_since, os.clock()) then
+            local msg = ConnStatus.timeout_message(overlay.connect_server, ConnStatus.CONNECT_TIMEOUT)
+            if timeout_handler then
+                pcall(timeout_handler, msg)
+            else
+                APOverlay.set_disconnected(msg)
+            end
+            return true
+        end
+        return false
+    end)
+end
+
 function APOverlay.set_connected(slot_name)
     overlay.connected = true
+    overlay.state = "connected"
+    conn_gen = conn_gen + 1   -- stops the timeout watch
     if not is_alive() then
         queued_connected = slot_name or "Connected"
         return
     end
     APOverlay.set_status("AP: " .. (slot_name or "Connected"), 0.3, 1, 0.3)
-    if overlay.connect_btn_text then
-        set_text(overlay.connect_btn_text, "Press F3 to Disconnect")
-    end
+    put("connect_btn_text", HINT_CONNECTED)
+    put("error_text", "")
+    APOverlay.refresh_info()
 end
 
 function APOverlay.set_disconnected(reason)
     overlay.connected = false
+    overlay.state = "idle"
+    conn_gen = conn_gen + 1
+    local friendly = ConnStatus.friendly(reason)
+    shown.error_text = friendly
     if not is_alive() then
         queued_connected = false
         return
     end
     local msg = "AP: Disconnected"
-    if reason and reason ~= "" then
-        msg = msg .. " (" .. reason .. ")"
-    end
-    APOverlay.set_status(msg, 1, 0.3, 0.3)
-    if overlay.connect_btn_text then
-        set_text(overlay.connect_btn_text, "Press F3 to Connect")
-    end
+    local short = ConnStatus.short(reason)
+    if short ~= "" then msg = msg .. " (" .. short .. ")" end
+    APOverlay.set_status(msg, 1, 0.4, 0.4)
+    put("connect_btn_text", HINT_IDLE)
+    put("error_text", friendly)
+    APOverlay.clear_progress()
 end
 
-function APOverlay.set_connecting()
+function APOverlay.set_connecting(server)
+    overlay.state = "connecting"
+    overlay.connecting_since = os.clock()
+    overlay.connect_server = server or overlay.connect_server
+    shown.error_text = ""
+    start_timeout_watch()
     if not is_alive() then
         queued_status = { text = "AP: Connecting...", r = 1, g = 1, b = 0.3 }
         return
     end
     APOverlay.set_status("AP: Connecting...", 1, 1, 0.3)
-    if overlay.connect_btn_text then
-        set_text(overlay.connect_btn_text, "Connecting...")
-    end
+    put("connect_btn_text", HINT_CONNECTING)
+    put("error_text", "")
 end
 
 function APOverlay.add_item_log(text)
@@ -554,7 +774,7 @@ function APOverlay.add_item_log(text)
         table.remove(item_log_lines, 1)
     end
     if is_alive() and overlay.item_log_text then
-        set_text(overlay.item_log_text, table.concat(item_log_lines, "\n"))
+        put("item_log_text", table.concat(item_log_lines, "\n"))
     end
 end
 
@@ -582,11 +802,19 @@ function APOverlay.get_password()
     return nil
 end
 
+--- Everything the panel and status label currently say, for the harness and tests.
+function APOverlay.get_shown()
+    local out = { state = overlay.state, panel = panel_shown }
+    for k, v in pairs(shown) do out[k] = v end
+    return out
+end
+
 function APOverlay.is_connected()
     return overlay.connected
 end
 
 function APOverlay.destroy()
+    release_input()
     if overlay.root then
         pcall(function() overlay.root:RemoveFromViewport() end)
     end
@@ -660,12 +888,12 @@ function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, 
     for _ in pairs(pw) do w_total = w_total + 1 end
 
     if w_total > 0 then
-        set_text(overlay.equip_weapons_text,
+        put("equip_weapons_text",
             "Weapons (" .. w_received .. "/" .. w_total .. " received, "
             .. w_completed .. "/" .. w_needed .. " completed):\n"
             .. table.concat(w_lines, "\n"))
     else
-        set_text(overlay.equip_weapons_text, "Weapons: (none in pool)")
+        put("equip_weapons_text", "Weapons: (none in pool)")
     end
 
     -- Build melee checklist
@@ -686,12 +914,12 @@ function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, 
     for _ in pairs(pm) do m_total = m_total + 1 end
 
     if m_total > 0 then
-        set_text(overlay.equip_melee_text,
+        put("equip_melee_text",
             "Melee (" .. m_received .. "/" .. m_total .. " received, "
             .. m_completed .. "/" .. m_needed .. " completed):\n"
             .. table.concat(m_lines, "\n"))
     else
-        set_text(overlay.equip_melee_text, "")
+        put("equip_melee_text", "")
     end
 
     -- Build abilities checklist
@@ -712,18 +940,18 @@ function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, 
     for _ in pairs(pa) do a_total = a_total + 1 end
 
     if a_total > 0 then
-        set_text(overlay.equip_abilities_text,
+        put("equip_abilities_text",
             "Abilities (" .. a_received .. "/" .. a_total .. " received, "
             .. a_completed .. "/" .. a_needed .. " completed):\n"
             .. table.concat(a_lines, "\n"))
     else
-        set_text(overlay.equip_abilities_text, "")
+        put("equip_abilities_text", "")
     end
 
     -- Victory summary
     local rank_name = LocationData.RANK_NAMES
         and LocationData.RANK_NAMES[LocationData.required_rank + 1] or "?"
-    set_text(overlay.victory_summary_text,
+    put("victory_summary_text",
         "Goal: " .. w_needed .. " weapons, " .. m_needed .. " melee, "
         .. a_needed .. " abilities on " .. rank_name)
 end
