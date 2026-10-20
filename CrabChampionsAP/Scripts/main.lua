@@ -13,6 +13,7 @@ local ItemApply = require("AP/ItemApply")
 local ItemData = require("AP/ItemData")
 local LocationData = require("AP/LocationData")
 local PickupWatch = require("AP/PickupWatch")
+local Traps = require("AP/Traps")
 
 local APOverlay = nil
 pcall(function() APOverlay = require("AP/APOverlay") end)
@@ -73,8 +74,14 @@ local function on_item(it)
         tonumber(it.flags) or 0
     ))
 
-    -- Apply immediately — we're on the LoopAsync thread, no need to defer
-    ItemApply.apply_item(item_id)
+    -- Traps and Perk Boosts are handled by their own module (with its own
+    -- replay ledger); everything else is applied right away. We're on the
+    -- LoopAsync thread, no need to defer.
+    local identity = tostring(APClient.slot_data and APClient.slot_data.seed) .. "/" .. tostring(APClient.slot)
+    local trap_ok, trap_handled = pcall(Traps.on_item, info, it.index, identity)
+    if not (trap_ok and trap_handled) then
+        ItemApply.apply_item(item_id)
+    end
 
     -- Track received item for description updates
     if _on_item_received_for_descriptions then _on_item_received_for_descriptions(it) end
@@ -962,6 +969,14 @@ end
 
 -- Install pickup watcher (sends location checks + removes items)
 PickupWatch.install(APClient)
+
+-- Trap watcher: delivers received traps and Perk Boosts, undoes timed effects
+Traps.install()
+pcall(function()
+    RegisterHook("/Script/CrabChampions.CrabPC:ClientOnEliminated", function()
+        pcall(Traps.on_run_over)
+    end)
+end)
 
 -- DeathLink: send when player is eliminated during a run
 pcall(function()

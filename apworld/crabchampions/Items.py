@@ -17,6 +17,7 @@ class CrabChampsItemCategory(IntEnum):
     ABILITY_MOD = 9
     FILLER = 10
     SLOT = 11
+    TRAP = 12
 
 
 class CrabChampsItemData(NamedTuple):
@@ -222,6 +223,39 @@ _slot_items = [
     CrabChampsItemData("Progressive Melee Mod Slot", 953, CrabChampsItemCategory.SLOT),
 ]
 
+# ──────────────────────────────────────────────
+# Perk boost filler  (cc_code 970)
+# ──────────────────────────────────────────────
+_boost_items = [
+    CrabChampsItemData("Perk Boost", 970, CrabChampsItemCategory.FILLER),            # +1 level on a perk you hold
+]
+
+# ──────────────────────────────────────────────
+# Traps  (cc_code 960–967).  Every effect is temporary.
+# ──────────────────────────────────────────────
+_trap_items = [
+    CrabChampsItemData("Crystal Tax", 960, CrabChampsItemCategory.TRAP),             # lose a share of your crystals
+    CrabChampsItemData("Slowdown Trap", 961, CrabChampsItemCategory.TRAP),           # slower for one island
+    CrabChampsItemData("Weak Shots Trap", 962, CrabChampsItemCategory.TRAP),         # outgoing damage cut for a while
+    CrabChampsItemData("Bruise Trap", 963, CrabChampsItemCategory.TRAP),            # lose a share of current health
+    CrabChampsItemData("Grow Trap", 964, CrabChampsItemCategory.TRAP),              # bigger crab for a while
+    CrabChampsItemData("Shrink Trap", 965, CrabChampsItemCategory.TRAP),            # smaller crab for a while
+    CrabChampsItemData("Heavy Gravity Trap", 966, CrabChampsItemCategory.TRAP),     # stronger gravity for a while
+    CrabChampsItemData("Floaty Gravity Trap", 967, CrabChampsItemCategory.TRAP),    # weaker gravity for a while
+]
+
+# Option name (Options.py) -> trap item name, in a fixed order
+TRAP_WEIGHT_OPTIONS = {
+    "trap_weight_crystal_tax": "Crystal Tax",
+    "trap_weight_slowdown": "Slowdown Trap",
+    "trap_weight_weak_shots": "Weak Shots Trap",
+    "trap_weight_bruise": "Bruise Trap",
+    "trap_weight_grow": "Grow Trap",
+    "trap_weight_shrink": "Shrink Trap",
+    "trap_weight_heavy_gravity": "Heavy Gravity Trap",
+    "trap_weight_floaty_gravity": "Floaty Gravity Trap",
+}
+
 # Crystal filler distribution weights (must sum to 100)
 CRYSTAL_FILLER_WEIGHTS = [
     ("Crystal Cache", 60),      # 50 crystals   — 60%
@@ -244,6 +278,8 @@ _all_items: List[CrabChampsItemData] = (
     + _event_items
     + _filler_items
     + _slot_items
+    + _trap_items
+    + _boost_items
 )
 
 item_descriptions: Dict[str, str] = {}
@@ -541,6 +577,31 @@ def BuildItemPool(multiworld, count, options,
         _add(item)
 
     remaining = count - len(item_pool)
+
+    # 5a. Traps and Perk Boosts take their share of the remaining slots first.
+    #     Traps: trap_percentage of the slots, kind chosen by the weight options.
+    #     Perk Boosts: perk_boost_count, never more than the slots left.
+    trap_pct = getattr(options, "trap_percentage", None)
+    trap_pct = trap_pct.value if trap_pct is not None else 0
+    trap_names, trap_weights = [], []
+    for opt_name, item_name in TRAP_WEIGHT_OPTIONS.items():
+        opt = getattr(options, opt_name, None)
+        weight = opt.value if opt is not None else 0
+        if weight > 0:
+            trap_names.append(item_name)
+            trap_weights.append(weight)
+    if remaining > 0 and trap_pct > 0 and trap_names:
+        trap_slots = min(remaining, round(remaining * trap_pct / 100))
+        for name in multiworld.random.choices(trap_names, weights=trap_weights, k=trap_slots):
+            _add(item_dictionary[name])
+        remaining -= trap_slots
+    boost_opt = getattr(options, "perk_boost_count", None)
+    boost_count = boost_opt.value if boost_opt is not None else 0
+    if remaining > 0 and boost_count > 0:
+        boost_slots = min(remaining, boost_count)
+        for _ in range(boost_slots):
+            _add(item_dictionary["Perk Boost"])
+        remaining -= boost_slots
 
     # 5. Split remaining slots between Crystal Cache filler and extra stackable items.
     #    crystal_cache_percentage controls the ratio (default 50%).

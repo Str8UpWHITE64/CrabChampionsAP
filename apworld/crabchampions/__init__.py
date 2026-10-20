@@ -560,7 +560,7 @@ class CrabChampsWorld(World):
         if excluded_needed > 0:
             filler_count = sum(
                 1 for it in itempool
-                if it.classification == ItemClassification.filler
+                if it.classification in (ItemClassification.filler, ItemClassification.trap)
             )
             to_downgrade = excluded_needed - filler_count
             if to_downgrade > 0:
@@ -609,6 +609,10 @@ class CrabChampsWorld(World):
                 classification = ItemClassification.useful
         elif item_cat == CrabChampsItemCategory.SLOT:
             classification = ItemClassification.progression
+        elif item_cat == CrabChampsItemCategory.TRAP:
+            classification = ItemClassification.trap
+        elif name == "Perk Boost":
+            classification = ItemClassification.useful
         elif item_cat == CrabChampsItemCategory.FILLER:
             classification = ItemClassification.filler
         else:
@@ -783,6 +787,15 @@ class CrabChampsWorld(World):
                 "starting_item_percentage": self.options.starting_item_percentage.value,
                 "biome_item_percentage": self.options.biome_item_percentage.value,
                 "death_link": bool(self.options.death_link.value),
+                "trap_percentage": self.options.trap_percentage.value,
+                "trap_duration": self.options.trap_duration.value,
+                "trap_grace_seconds": self.options.trap_grace_seconds.value,
+                "crystal_tax_percent": self.options.crystal_tax_percent.value,
+                "slowdown_percent": self.options.slowdown_percent.value,
+                "weak_shots_percent": self.options.weak_shots_percent.value,
+                "bruise_percent": self.options.bruise_percent.value,
+                "perk_boost_max_per_run": self.options.perk_boost_max_per_run.value,
+                "perk_boost_level_cap": self.options.perk_boost_level_cap.value,
             },
             "death_link": bool(self.options.death_link.value),
             "seed": self.multiworld.seed_name,

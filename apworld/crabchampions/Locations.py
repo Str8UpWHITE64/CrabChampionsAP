@@ -155,7 +155,7 @@ BASE_ID = 1890000
 TABLE_OFFSET = 12000
 # Bump whenever an item or location ID changes. The client refuses seeds
 # from any other layout instead of sending checks under the wrong IDs.
-ID_LAYOUT = 1
+ID_LAYOUT = 3
 MAX_ISLANDS = 56
 NUM_RANKS = 8
 

@@ -771,6 +771,28 @@ function M.on_biome_cleared()
         .. biome_pct .. "%)")
 end
 
+
+--- Perk Boost: add one level to a random perk the player holds this run.
+--- Skips greed perks and perks already at `level_cap`. Goes through the same
+--- target the run draw uses, so a reconnect or the inventory sync keeps it.
+--- Returns the perk's name and its new level, or nil when nothing qualifies.
+function M.boost_random_perk(level_cap)
+    local CAT = ItemData.CATEGORY
+    local cands = {}
+    for _, fn in ipairs(want_order) do
+        local info = info_by_name[fn]
+        if info and info.cat == CAT.PERK and info.da and not is_greed_item(fn)
+            and (have[fn] or 0) >= 1 and (want[fn] or 0) < level_cap then
+            cands[#cands + 1] = fn
+        end
+    end
+    if #cands == 0 then return nil end
+    local fn = cands[math.random(#cands)]
+    want_add(info_by_name[fn], 1)
+    schedule_flush()
+    return info_by_name[fn].name, want[fn]
+end
+
 -------------------------------------------------------------
 -- Public API
 -------------------------------------------------------------

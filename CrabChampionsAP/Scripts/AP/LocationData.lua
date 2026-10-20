@@ -21,7 +21,7 @@ M.BASE_ID = 1890000
 M.TABLE_OFFSET = 12000
 -- Must match ID_LAYOUT in Locations.py. APClient refuses seeds from any
 -- other layout, since their item and location IDs mean different things.
-M.ID_LAYOUT = 1
+M.ID_LAYOUT = 3
 
 M.REGION = {
     island      = 0,
@@ -120,6 +120,16 @@ M.pool_only_completion = false
 M.starting_item_percentage = 100
 M.biome_item_percentage = 0
 
+-- Traps and Perk Boost (layout 3). Every effect is temporary; these set how strong.
+M.trap_duration = 30
+M.trap_grace_seconds = 10
+M.crystal_tax_percent = 25
+M.slowdown_percent = 35
+M.weak_shots_percent = 50
+M.bruise_percent = 30
+M.perk_boost_max_per_run = 3
+M.perk_boost_level_cap = 5
+
 -- Whether receiving an item completes its pickup check. Seeds from before the
 -- option existed did this, so it defaults to on.
 M.granted_item_checks = true
@@ -162,6 +172,14 @@ function M.configure(slot_data)
     M.pool_only_completion = opts.pool_only_completion == true
     M.starting_item_percentage = tonumber(opts.starting_item_percentage) or 100
     M.biome_item_percentage = tonumber(opts.biome_item_percentage) or 0
+    M.trap_duration = tonumber(opts.trap_duration) or 30
+    M.trap_grace_seconds = tonumber(opts.trap_grace_seconds) or 10
+    M.crystal_tax_percent = tonumber(opts.crystal_tax_percent) or 25
+    M.slowdown_percent = tonumber(opts.slowdown_percent) or 35
+    M.weak_shots_percent = tonumber(opts.weak_shots_percent) or 50
+    M.bruise_percent = tonumber(opts.bruise_percent) or 30
+    M.perk_boost_max_per_run = tonumber(opts.perk_boost_max_per_run) or 3
+    M.perk_boost_level_cap = tonumber(opts.perk_boost_level_cap) or 5
     M.granted_item_checks = opts.granted_item_checks ~= false
     M.melee_for_completion = tonumber(opts.melee_for_completion) or 0
     M.ability_for_completion = tonumber(opts.ability_for_completion) or 0

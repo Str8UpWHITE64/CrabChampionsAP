@@ -486,6 +486,184 @@ class GuaranteedItemsOption(ItemDict):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Traps
+# ──────────────────────────────────────────────────────────────────────────
+
+class TrapPercentage(Range):
+    """Percentage of the filler slots that become traps.  Traps are
+    received items that make a run harder for a short time; none of them
+    is permanent, removes your equipment, or can kill you outright.
+
+    0 = no traps (default).  Filler slots are the slots left over after
+    equipment, one of each pickup and any Perk Boosts are placed."""
+    display_name = "Trap Percentage"
+    range_start = 0
+    range_end = 100
+    default = 0
+
+
+class TrapWeightCrystalTax(Range):
+    """Relative chance that a trap is Crystal Tax (you lose a share of your
+    crystals).  0 removes this trap from the pool."""
+    display_name = "Trap Weight: Crystal Tax"
+    range_start = 0
+    range_end = 100
+    default = 20
+
+
+class TrapWeightSlowdown(Range):
+    """Relative chance that a trap is a Slowdown Trap (you move slower until
+    the next island is cleared).  0 removes this trap from the pool."""
+    display_name = "Trap Weight: Slowdown"
+    range_start = 0
+    range_end = 100
+    default = 20
+
+
+class TrapWeightWeakShots(Range):
+    """Relative chance that a trap is a Weak Shots Trap (your outgoing damage
+    is cut for the trap duration).  0 removes this trap from the pool."""
+    display_name = "Trap Weight: Weak Shots"
+    range_start = 0
+    range_end = 100
+    default = 20
+
+
+class TrapWeightBruise(Range):
+    """Relative chance that a trap is a Bruise Trap (you lose a share of your
+    current health, never the last point).  0 removes this trap."""
+    display_name = "Trap Weight: Bruise"
+    range_start = 0
+    range_end = 100
+    default = 20
+
+
+class TrapWeightGrow(Range):
+    """Relative chance that a trap is a Grow Trap (a bigger crab for the trap
+    duration).  0 removes this trap from the pool."""
+    display_name = "Trap Weight: Grow"
+    range_start = 0
+    range_end = 100
+    default = 10
+
+
+class TrapWeightShrink(Range):
+    """Relative chance that a trap is a Shrink Trap (a smaller crab for the
+    trap duration).  0 removes this trap from the pool."""
+    display_name = "Trap Weight: Shrink"
+    range_start = 0
+    range_end = 100
+    default = 10
+
+
+class TrapWeightHeavyGravity(Range):
+    """Relative chance that a trap is a Heavy Gravity Trap (stronger gravity
+    for the trap duration).  0 removes this trap from the pool."""
+    display_name = "Trap Weight: Heavy Gravity"
+    range_start = 0
+    range_end = 100
+    default = 10
+
+
+class TrapWeightFloatyGravity(Range):
+    """Relative chance that a trap is a Floaty Gravity Trap (weaker gravity
+    for the trap duration).  0 removes this trap from the pool."""
+    display_name = "Trap Weight: Floaty Gravity"
+    range_start = 0
+    range_end = 100
+    default = 10
+
+
+class TrapDuration(Range):
+    """How many seconds the timed traps last: Weak Shots, Grow, Shrink and
+    both gravity traps.  (Slowdown lasts one island instead.)"""
+    display_name = "Trap Duration (seconds)"
+    range_start = 5
+    range_end = 120
+    default = 30
+
+
+class TrapGraceSeconds(Range):
+    """A trap received in the lobby or just as an island begins waits this
+    many seconds into the island before it hits, so you can look around
+    first.  0 = no wait."""
+    display_name = "Trap Grace (seconds)"
+    range_start = 0
+    range_end = 60
+    default = 10
+
+
+class CrystalTaxPercent(Range):
+    """Share of your current crystals a Crystal Tax takes."""
+    display_name = "Crystal Tax Percent"
+    range_start = 5
+    range_end = 100
+    default = 25
+
+
+class SlowdownPercent(Range):
+    """How much slower a Slowdown Trap makes you, as a percentage of your
+    normal walk speed."""
+    display_name = "Slowdown Percent"
+    range_start = 10
+    range_end = 80
+    default = 35
+
+
+class WeakShotsPercent(Range):
+    """Share of your normal outgoing damage you still deal during a Weak
+    Shots Trap.  50 = half damage."""
+    display_name = "Weak Shots Damage Percent"
+    range_start = 10
+    range_end = 90
+    default = 50
+
+
+class BruisePercent(Range):
+    """Share of your current health a Bruise Trap takes.  It never takes
+    the last point."""
+    display_name = "Bruise Percent"
+    range_start = 5
+    range_end = 90
+    default = 30
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Perk Boost filler
+# ──────────────────────────────────────────────────────────────────────────
+
+class PerkBoostCount(Range):
+    """How many Perk Boost items are added to the pool (taking filler
+    slots).  A Perk Boost adds one level to a random perk you are holding
+    in the current run.  It is strong, so it is limited three ways: this
+    count per seed, Perk Boost Max Per Run, and Perk Boost Level Cap.
+
+    0 = none (default)."""
+    display_name = "Perk Boost Count"
+    range_start = 0
+    range_end = 50
+    default = 0
+
+
+class PerkBoostMaxPerRun(Range):
+    """The most Perk Boosts that can take effect in one run.  Boosts over the
+    limit wait for the next run."""
+    display_name = "Perk Boost Max Per Run"
+    range_start = 1
+    range_end = 20
+    default = 3
+
+
+class PerkBoostLevelCap(Range):
+    """A Perk Boost never raises a perk above this level.  Perks already at
+    the cap are skipped; if every perk you hold is capped, the boost waits."""
+    display_name = "Perk Boost Level Cap"
+    range_start = 2
+    range_end = 10
+    default = 5
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Dataclass - option order controls display order in the WebUI
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -526,4 +704,24 @@ class CrabChampsOption(PerGameCommonOptions):
     crystal_cache_percentage: CrystalCachePercentage
     greed_item_mode: GreedItemMode
     guaranteed_items: GuaranteedItemsOption
+    # Traps
+    trap_percentage: TrapPercentage
+    trap_weight_crystal_tax: TrapWeightCrystalTax
+    trap_weight_slowdown: TrapWeightSlowdown
+    trap_weight_weak_shots: TrapWeightWeakShots
+    trap_weight_bruise: TrapWeightBruise
+    trap_weight_grow: TrapWeightGrow
+    trap_weight_shrink: TrapWeightShrink
+    trap_weight_heavy_gravity: TrapWeightHeavyGravity
+    trap_weight_floaty_gravity: TrapWeightFloatyGravity
+    trap_duration: TrapDuration
+    trap_grace_seconds: TrapGraceSeconds
+    crystal_tax_percent: CrystalTaxPercent
+    slowdown_percent: SlowdownPercent
+    weak_shots_percent: WeakShotsPercent
+    bruise_percent: BruisePercent
+    # Perk Boost
+    perk_boost_count: PerkBoostCount
+    perk_boost_max_per_run: PerkBoostMaxPerRun
+    perk_boost_level_cap: PerkBoostLevelCap
     death_link: DeathLink

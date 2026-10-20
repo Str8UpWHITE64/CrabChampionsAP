@@ -24,6 +24,7 @@ M.CATEGORY = {
     ABILITY_MOD = 9,
     FILLER     = 10,
     SLOT       = 11,
+    TRAP       = 12,
 }
 
 -- UE4 class name for each category
@@ -168,6 +169,19 @@ add(950, M.CATEGORY.SLOT, "Progressive Perk Slot")
 add(951, M.CATEGORY.SLOT, "Progressive Weapon Mod Slot")
 add(952, M.CATEGORY.SLOT, "Progressive Ability Mod Slot")
 add(953, M.CATEGORY.SLOT, "Progressive Melee Mod Slot")
+
+-- Traps (cc_code 960-967). Every effect is temporary.
+add(960, M.CATEGORY.TRAP, "Crystal Tax")
+add(961, M.CATEGORY.TRAP, "Slowdown Trap")
+add(962, M.CATEGORY.TRAP, "Weak Shots Trap")
+add(963, M.CATEGORY.TRAP, "Bruise Trap")
+add(964, M.CATEGORY.TRAP, "Grow Trap")
+add(965, M.CATEGORY.TRAP, "Shrink Trap")
+add(966, M.CATEGORY.TRAP, "Heavy Gravity Trap")
+add(967, M.CATEGORY.TRAP, "Floaty Gravity Trap")
+
+-- Perk Boost (cc_code 970): +1 level on a perk the player holds
+add(970, M.CATEGORY.FILLER, "Perk Boost")
 
 -- Event (cc_code 1000)
 add(1000, M.CATEGORY.EVENT, "Victory")

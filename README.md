@@ -213,6 +213,35 @@ When you clear the last island of a biome, this percentage of the received items
 
 > **Example:** Continuing the example above, clearing the first biome grants 5% of the remaining 190 items, so 10 more.
 
+### Traps
+
+Traps are received items that make a run harder for a short time. None of them is permanent, removes your equipment, perks or progress, or can kill you. They are off by default. A trap that arrives in the lobby, or in the first seconds of an island, waits (see `trap_grace_seconds`). A reconnect or a game restart never fires the same trap twice.
+
+#### `trap_percentage` (Default: 0, Range: 0-100)
+The percentage of the filler slots that become traps. Filler slots are what is left after equipment, one of each pickup and any Perk Boosts.
+
+#### Trap weights (each Default: see below, Range: 0-100)
+`trap_weight_crystal_tax` (20), `trap_weight_slowdown` (20), `trap_weight_weak_shots` (20), `trap_weight_bruise` (20), `trap_weight_grow` (10), `trap_weight_shrink` (10), `trap_weight_heavy_gravity` (10), `trap_weight_floaty_gravity` (10). The relative chance of each trap kind; 0 removes that trap.
+
+| Trap | Effect |
+|------|--------|
+| Crystal Tax | Takes `crystal_tax_percent` (default 25) of your current crystals. |
+| Slowdown Trap | Walk speed drops by `slowdown_percent` (default 35) until the island you were on is over. |
+| Weak Shots Trap | Your outgoing damage is cut to `weak_shots_percent` (default 50) for `trap_duration` seconds. |
+| Bruise Trap | Takes `bruise_percent` (default 30) of your current health. It never takes the last point. |
+| Grow Trap / Shrink Trap | A bigger / smaller crab for `trap_duration` seconds. |
+| Heavy Gravity Trap / Floaty Gravity Trap | Stronger / weaker gravity for `trap_duration` seconds. |
+
+Other trap options: `trap_duration` (default 30, 5-120 seconds), `trap_grace_seconds` (default 10, 0-60), `crystal_tax_percent` (5-100), `slowdown_percent` (10-80), `weak_shots_percent` (10-90), `bruise_percent` (5-90). Effects end when the timer runs out, when the island is over (Slowdown), or when you die or return to the lobby.
+
+### Perk Boost
+
+A **Perk Boost** adds one level to a random perk you are holding in the current run. It is strong, so it is limited three ways:
+
+- `perk_boost_count` (Default: 0, Range: 0-50): how many Perk Boosts are in the pool (they take filler slots).
+- `perk_boost_max_per_run` (Default: 3, Range: 1-20): the most that take effect in one run; the rest wait for the next run.
+- `perk_boost_level_cap` (Default: 5, Range: 2-10): a boost never raises a perk above this level. Greed perks are skipped, and a boost with nothing to raise waits until you hold a perk it can.
+
 ### Filler & Miscellaneous
 
 #### `crystal_cache_percentage` (Default: 75, Range: 0–100)
@@ -244,7 +273,8 @@ When enabled, dying in Crab Champions sends a death to all connected Death Link 
 - **Weapon Mods** (90): Modifications like Arc Shot, Big Shot, Fire Strike
 - **Melee Mods** (12): Augmentations like Big Claws, Fire Claws
 - **Ability Mods** (43): Augmentations like Aura Explosion, Beam Turret
-- **Filler**: Crystal Cache, Crystal Hoard, Crystal Jackpot
+- **Filler**: Crystal Cache, Crystal Hoard, Crystal Jackpot, Perk Boost
+- **Traps** (8): Crystal Tax, Slowdown, Weak Shots, Bruise, Grow, Shrink, Heavy Gravity, Floaty Gravity
 
 ## Difficulty Ranks
 
