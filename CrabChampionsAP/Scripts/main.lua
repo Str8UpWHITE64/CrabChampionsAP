@@ -14,6 +14,7 @@ local ItemData = require("AP/ItemData")
 local LocationData = require("AP/LocationData")
 local PickupWatch = require("AP/PickupWatch")
 local Traps = require("AP/Traps")
+local Achievements = require("AP/Achievements")
 
 local APOverlay = nil
 pcall(function() APOverlay = require("AP/APOverlay") end)
@@ -204,6 +205,8 @@ end
 
 --- Lock ALL equipment: backup save, snapshot+clear SG arrays, set bRequiresUnlock.
 local function lock_all_equipment()
+    -- Block achievement writes before the rank is raised, and until it is put back.
+    Achievements.set_active(true)
     original_unlock_flags = {}
     local locked = 0
 
@@ -336,6 +339,7 @@ local function restore_equipment_locks()
         original_account_rank = nil
         original_account_level = nil
     end
+    Achievements.set_active(false)
 end
 
 -- Run crash recovery on mod startup (before game loads the save)
@@ -972,6 +976,10 @@ PickupWatch.install(APClient)
 
 -- Trap watcher: delivers received traps and Perk Boosts, undoes timed effects
 Traps.install()
+
+-- Achievement block: on while connected or while the rank is raised
+Achievements.also_active = function() return APClient:is_slot_connected() end
+Achievements.install()
 pcall(function()
     RegisterHook("/Script/CrabChampions.CrabPC:ClientOnEliminated", function()
         pcall(Traps.on_run_over)
