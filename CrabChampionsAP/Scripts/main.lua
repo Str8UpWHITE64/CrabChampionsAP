@@ -15,6 +15,7 @@ local LocationData = require("AP/LocationData")
 local PickupWatch = require("AP/PickupWatch")
 local Traps = require("AP/Traps")
 local Achievements = require("AP/Achievements")
+local ModifierUnlock = require("AP/ModifierUnlock")
 
 local APOverlay = nil
 pcall(function() APOverlay = require("AP/APOverlay") end)
@@ -115,8 +116,6 @@ end
 -- is auto-restored on next mod startup — zero risk to player data.
 ------------------------------------------------------------
 local original_unlock_flags = {}  -- full_name -> original bRequiresUnlock value
-local original_account_rank = nil
-local original_account_level = nil
 
 -- Save game array names for equipment unlock tracking
 local SG_UNLOCK_ARRAYS = {"UnlockedWeapons", "UnlockedAbilities", "UnlockedMeleeWeapons"}
@@ -244,18 +243,8 @@ local function lock_all_equipment()
 
     log("Equipment lock: set bRequiresUnlock=true on " .. locked .. " DAs")
 
-    -- 4) Max out AccountRank and AccountLevel to unlock all difficulty modifiers
-    pcall(function()
-        local pss = FindAllOf("CrabPS")
-        if pss and #pss > 0 then
-            local ps = pss[1]
-            original_account_rank = ps.AccountRank
-            original_account_level = ps.AccountLevel
-            ps.AccountRank = 8   -- Prismatic (highest)
-            ps.AccountLevel = 100
-            log("Account rank set to Prismatic (was " .. tostring(original_account_rank) .. "), level set to 100 (was " .. tostring(original_account_level) .. ")")
-        end
-    end)
+    -- 4) Difficulty modifiers: unlocked by ModifierUnlock (button level), never by raising the account rank/level.
+    ModifierUnlock.set_active(true)
 end
 
 --- Unlock a specific equipment DA by full_name (set bRequiresUnlock=false + add to SG).
@@ -326,19 +315,8 @@ local function restore_equipment_locks()
         log("EquipLock deactivated")
     end
 
-    -- 5) Restore AccountRank and AccountLevel
-    if original_account_rank ~= nil then
-        pcall(function()
-            local pss = FindAllOf("CrabPS")
-            if pss and #pss > 0 then
-                pss[1].AccountRank = original_account_rank
-                pss[1].AccountLevel = original_account_level
-                log("Account rank restored to " .. tostring(original_account_rank) .. ", level to " .. tostring(original_account_level))
-            end
-        end)
-        original_account_rank = nil
-        original_account_level = nil
-    end
+    -- 5) Difficulty modifier unlock off (rank and level were never changed, so there is nothing to restore)
+    ModifierUnlock.set_active(false)
     Achievements.set_active(false)
 end
 
@@ -977,9 +955,15 @@ PickupWatch.install(APClient)
 -- Trap watcher: delivers received traps and Perk Boosts, undoes timed effects
 Traps.install()
 
--- Achievement block: on while connected or while the rank is raised
+-- Achievement block: on while connected
 Achievements.also_active = function() return APClient:is_slot_connected() end
 Achievements.install()
+
+-- Keep the difficulty modifier buttons unlocked while connected (the menu redraws them whenever it opens).
+LoopAsync(300, function()
+    pcall(ModifierUnlock.tick)
+    return false
+end)
 pcall(function()
     RegisterHook("/Script/CrabChampions.CrabPC:ClientOnEliminated", function()
         pcall(Traps.on_run_over)
@@ -1044,6 +1028,7 @@ if inv_sanitize_ok then
 
     -- Hook portal/island events (game may grant items during transitions)
     RegisterHook("/Script/CrabChampions.CrabPC:ClientOnEnteredPortal", function(Context, ...)
+        pcall(ModifierUnlock.pause, 8)
         LoopAsync(500, function()
             inv_sanitize.sanitize_all_players()
             return true

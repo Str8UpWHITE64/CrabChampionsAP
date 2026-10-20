@@ -1,8 +1,8 @@
 -- AP/Achievements.lua
 -- Keeps Steam achievements from being awarded while the mod is active.
 --
--- The client raises the account rank and level on connect (main.lua, lock_all_equipment), which the game reads as
--- having reached those ranks and rewards with rank achievements. While the block is on, every achievement write the
+-- Safety net: the client no longer raises the account rank or level (ModifierUnlock.lua unlocks the difficulty
+-- modifiers at button level), but while the mod is connected every achievement write the
 -- game makes is turned into a zero-progress write, which Steam ignores. Outside a connection nothing is touched.
 
 local M = {}
