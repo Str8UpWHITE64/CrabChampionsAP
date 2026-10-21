@@ -7,7 +7,7 @@
 
 local M = {}
 
--- Replaceable: the harness forwards these into its event log.
+-- Optional callback, called with each log message (for debug tools).
 M.on_event = nil
 local ring = {}
 local function log(msg)

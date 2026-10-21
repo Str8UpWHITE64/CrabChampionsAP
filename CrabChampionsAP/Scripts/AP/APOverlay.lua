@@ -175,8 +175,8 @@ local function set_text(widget, text)
     end
 end
 
--- What each text widget currently shows, by overlay field name. Kept in Lua so the harness
--- (and tests) can read it back without touching widgets.
+-- What each text widget currently shows, by overlay field name. Kept in Lua so tests and
+-- debug tools can read it back without touching widgets.
 local shown = {}
 
 local function put(key, text)
@@ -802,7 +802,7 @@ function APOverlay.get_password()
     return nil
 end
 
---- Everything the panel and status label currently say, for the harness and tests.
+--- Everything the panel and status label currently say, for tests and debug tools.
 function APOverlay.get_shown()
     local out = { state = overlay.state, panel = panel_shown }
     for k, v in pairs(shown) do out[k] = v end

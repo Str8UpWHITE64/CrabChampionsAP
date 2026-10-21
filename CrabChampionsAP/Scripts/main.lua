@@ -77,8 +77,8 @@ local function on_item(it)
     ))
 
     -- Traps and Perk Boosts are handled by their own module (with its own
-    -- replay ledger); everything else is applied right away. We're on the
-    -- LoopAsync thread, no need to defer.
+    -- replay ledger); everything else is applied right away. This runs on
+    -- the LoopAsync thread, so there's no need to defer.
     local identity = tostring(APClient.slot_data and APClient.slot_data.seed) .. "/" .. tostring(APClient.slot)
     local trap_ok, trap_handled = pcall(Traps.on_item, info, it.index, identity)
     if not (trap_ok and trap_handled) then

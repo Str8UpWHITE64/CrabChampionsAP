@@ -12,7 +12,7 @@ local LocationData = require("AP/LocationData")
 
 local M = {}
 
--- Replaceable: the harness forwards trap messages into its event log, since the game's own log is lost on a kill.
+-- Optional callback, called with each trap message (for debug tools; the game's own log is lost on a kill).
 M.on_event = nil
 local ring = {}
 local function log(msg)
@@ -203,8 +203,8 @@ end
 -------------------------------------------------------------
 -- An effect is a list of ops { target, prop, factor }. The game rewrites some of these values by itself (walk speed
 -- when the crab starts aiming or sprinting, damage when a perk is picked up), so every tick each running effect
--- looks at the live value: if it is not the one we last wrote, the game has changed it, and we write that new value
--- times the factor. Undoing writes back the value the game last gave us, unless the game already reset it.
+-- looks at the live value: if it is not the one last written, the game has changed it, so the new value times the
+-- factor is written. Undoing restores the value the game last set, unless the game already reset it.
 -- An op whose object has been replaced since (a new run) is skipped on undo: the new object starts from defaults.
 --
 -- "ActorScale" is not a property: it reads and writes the crab's actor scale (CrabPS.ScaleMultiplier changes nothing
@@ -478,8 +478,8 @@ function M.install()
 end
 
 --- Forget everything this module remembers: running effects, the ledger (file and memory), waiting traps and
---- boosts. Normal play never needs this; the harness calls it so one scenario's items do not look like replays
---- of the previous scenario's items (the ledger file outlives a run, as it should).
+--- boosts. Normal play never needs this. It's for testing against a server that restarts with the same seed, so
+--- new items don't look like replays of earlier ones (the ledger file outlives a run, as it should).
 function M.reset()
     end_all("reset")
     ledger = { identity = nil, last = -1, boosts = 0, traps = {} }

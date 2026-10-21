@@ -28,7 +28,7 @@ package.loaded["AP/LocationData"] = {
     weak_shots_percent = 50, bruise_percent = 30, perk_boost_max_per_run = 2, perk_boost_level_cap = 3,
 }
 -- fake world
-clock = 1792265000   -- a real epoch value: the Slowdown bug only showed up with clocks above 1e9
+clock = 1792265000   -- a real-sized epoch value, so island-long effects are tested with the clocks the game uses
 world = { dead = false, lobby = false, island = 1, paused = false, crystals = 200, health = 100,
           boost_calls = 0, boost_pool = 5 }
 local function obj(addr, fields) fields.addr = addr; return fields end
@@ -275,7 +275,7 @@ expect("replay after restart: watermark", Traps.watermark(), 4)
 expect("replay after restart: trap not doubled", Traps.pending_traps(), 1)
 expect("replay after restart: boost kept", Traps.pending_boosts(), 1)
 
-# --- reset: the harness forgets the ledger, so the same indexes fire again
+# --- reset: forgetting the ledger lets the same indexes fire again
 fresh()
 Traps.on_item(info("Crystal Tax"), 0, ID)
 Traps.tick()
