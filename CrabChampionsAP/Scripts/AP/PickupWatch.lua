@@ -136,7 +136,26 @@ local function try_resolve_enum(kind, token)
     return nil
 end
 
-local function remove_item(kind, full_name)
+-- Fields of a pickup DA that hold the enum its ServerRemove* RPC takes.
+local ENUM_FIELDS = {
+    perk        = { "PerkType", "Type" },
+    relic       = { "RelicType", "Type" },
+    weapon_mod  = { "WeaponModType", "Type" },
+    melee_mod   = { "MeleeModType", "Type" },
+    ability_mod = { "AbilityModType", "Type" },
+}
+
+--- The enum value the DA itself carries, or nil.
+local function enum_from_da(kind, da)
+    if not da then return nil end
+    for _, field in ipairs(ENUM_FIELDS[kind] or {}) do
+        local ok, v = pcall(function() return da[field] end)
+        if ok and v ~= nil then return v end
+    end
+    return nil
+end
+
+local function remove_item(kind, full_name, da)
     local rpc_name = REMOVE_RPC[kind]
     if not rpc_name then
         log("No removal RPC for kind=" .. tostring(kind))
@@ -160,7 +179,9 @@ local function remove_item(kind, full_name)
         return
     end
 
-    local param = try_resolve_enum(kind, token)
+    -- The DA's own enum field removes exactly this item. A name token cut from
+    -- the asset path is only a fallback and does not resolve to an enum.
+    local param = enum_from_da(kind, da) or try_resolve_enum(kind, token)
     if param == nil then
         param = token
         log("Using raw token '" .. token .. "' for " .. rpc_name)
@@ -281,8 +302,60 @@ end
 
 --- Install the pickup and island watch hooks.
 ---@param ap_client table The APClient instance
+-- ---------------------------------------------------------------
+-- Full-inventory pickups
+--
+-- The dll lets a pickup through a full inventory when its check is still
+-- open (see CrabInvMngmt). Such a pickup is always stripped after the check
+-- is sent, so the inventory never ends up over capacity.
+-- ---------------------------------------------------------------
+
+local gate_installed = false
+local gate_sig = nil
+
+local function gate_available()
+    return type(AP_InstallPickupGate) == "function" and type(AP_SetOpenPickupChecks) == "function"
+end
+
+local function ensure_gate()
+    if gate_installed or not gate_available() then return end
+    local ok, cdo = pcall(StaticFindObject, "/Script/CrabChampions.Default__CrabInteractPickup")
+    if not ok or not cdo or not cdo:IsValid() then return end
+    local ok2, installed = pcall(AP_InstallPickupGate, cdo:GetAddress())
+    if ok2 and installed then
+        gate_installed = true
+        log("Full-inventory pickup gate: " .. tostring(AP_PickupGateStatus and AP_PickupGateStatus()))
+    else
+        log("Full-inventory pickup gate unavailable, pickups keep the game's rules: "
+            .. tostring(AP_PickupGateStatus and AP_PickupGateStatus()))
+        gate_available = function() return false end
+    end
+end
+
+--- Tell the dll which pickups still have an open check.
+function M.refresh_open_checks()
+    if not gate_available() then return end
+    local keys = {}
+    if client and client.slot_data and LocationData.pickup_checks then
+        keys = LocationData.open_pickup_keys(function(id) return client:is_location_checked(id) end)
+    end
+    local sig = table.concat(keys, ",")
+    if sig == gate_sig then return end
+    gate_sig = sig
+    pcall(AP_SetOpenPickupChecks, keys)
+end
+
 function M.install(ap_client)
     client = ap_client
+
+    -- Keep the dll's open-check set current (checks arrive from the server too).
+    if gate_available() then
+        GameThread.loop(2500, function()
+            ensure_gate()
+            M.refresh_open_checks()
+            return false
+        end)
+    end
 
     -- ---------------------------------------------------------------
     -- Where a pickup came from
@@ -329,6 +402,20 @@ function M.install(ap_client)
     -- ---------------------------------------------------------------
     -- Pickup hook (not rank-dependent)
     -- ---------------------------------------------------------------
+    local function strip_later(kind, full_name, da)
+        GameThread.loop(200, function()
+            remove_item(kind, full_name, da)
+            -- Retry overflow items — removing an item freed a slot
+            pcall(function()
+                local ItemApply = require("AP/ItemApply")
+                if ItemApply.overflow_count() > 0 then
+                    ItemApply.retry_overflow()
+                end
+            end)
+            return true
+        end)
+    end
+
     RegisterHook("/Script/CrabChampions.CrabPC:ClientOnPickedUpPickup", function(Context, PickupDA)
         -- When pickup checks are disabled, don't process pickups as checks
         if not LocationData.pickup_checks then return end
@@ -343,6 +430,17 @@ function M.install(ap_client)
             return
         end
 
+        -- Let through a full inventory by the dll: whatever happens below, it
+        -- has to be stripped, or the inventory stays over capacity.
+        local lifted = false
+        local gate_key = LocationData.gate_key(full_name)
+        if gate_key and type(AP_ConsumePickupLift) == "function" then
+            local ok, hit = pcall(AP_ConsumePickupLift, gate_key)
+            lifted = ok and hit == true
+        end
+        local lifted_kind = lifted and select(2, LocationData.from_da(full_name)) or nil
+        if lifted then log("Picked up past a full inventory: " .. full_name) end
+
         -- Check if this mod is suppressed (bundled with a disallowed weapon being reverted)
         local equip_lock = _G.AP and _G.AP.equip_lock or nil
         if equip_lock and equip_lock.suppressed_mods then
@@ -350,6 +448,7 @@ function M.install(ap_client)
             for mod_name, _ in pairs(equip_lock.suppressed_mods) do
                 if display_name == mod_name or full_name:find(mod_name:gsub("%s+", "")) then
                     log("Suppressed pickup check for bundled mod: " .. display_name)
+                    if lifted_kind then strip_later(lifted_kind, full_name, pickup) end
                     return
                 end
             end
@@ -361,6 +460,7 @@ function M.install(ap_client)
         pending_pickup = nil
         if origin and origin.full_name == full_name and not origin.is_find then
             log("Not a find (dropped, lobby or mod-spawned), ignored: " .. full_name)
+            if lifted_kind then strip_later(lifted_kind, full_name, pickup) end
             return
         end
 
@@ -390,32 +490,27 @@ function M.install(ap_client)
         log("Location check: " .. display .. " → " .. tostring(location_id))
 
         if client:is_location_checked(location_id) then
-            log("Already checked — skipping removal")
+            if lifted then
+                log("Already checked, stripping the extra copy: " .. display)
+                strip_later(kind, full_name, pickup)
+            else
+                log("Already checked — skipping removal")
+            end
             return
         end
 
         client:send_check(location_id)
+        M.refresh_open_checks()
 
-        -- A received item is the player's already, so the found copy stays.
+        -- A received item is the player's already, so the found copy stays,
+        -- unless it only fit because the dll lifted the capacity limit.
         local ia_ok, ItemApply = pcall(require, "AP/ItemApply")
-        if ia_ok and ItemApply and ItemApply.unlocked[full_name] then
+        if not lifted and ia_ok and ItemApply and ItemApply.unlocked[full_name] then
             log("Found an item already received, keeping it: " .. display)
             return
         end
 
-        local remove_kind = kind
-        local remove_fn = full_name
-        GameThread.loop(200, function()
-            remove_item(remove_kind, remove_fn)
-            -- Retry overflow items — removing an item freed a slot
-            pcall(function()
-                local ItemApply = require("AP/ItemApply")
-                if ItemApply.overflow_count() > 0 then
-                    ItemApply.retry_overflow()
-                end
-            end)
-            return true
-        end)
+        strip_later(kind, full_name, pickup)
     end)
 
     -- ---------------------------------------------------------------

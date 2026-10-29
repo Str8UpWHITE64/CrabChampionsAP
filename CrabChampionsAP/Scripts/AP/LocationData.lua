@@ -644,6 +644,51 @@ function M.final_run_checked(loc_id_fn, name, rank, is_checked)
 end
 
 -- ---------------------------------------------------------------
+-- Full-inventory gate keys
+--
+-- The C++ side lets a pickup through a full inventory only when its key is
+-- in the open set. Key = DA class name + ":" + lower-case DA suffix, the
+-- same string the dll builds from the pickup's data asset.
+-- ---------------------------------------------------------------
+
+local GATE_CLASS = {
+    perk = "CrabPerkDA", relic = "CrabRelicDA", weapon_mod = "CrabWeaponModDA",
+    melee_mod = "CrabMeleeModDA", ability_mod = "CrabAbilityModDA",
+}
+local GATE_KINDS = { "perk", "relic", "weapon_mod", "melee_mod", "ability_mod" }
+local gate_names = {
+    perk = perk_names, relic = relic_names, weapon_mod = weapon_mod_names,
+    melee_mod = melee_mod_names, ability_mod = ability_mod_names,
+}
+
+--- Gate key for a pickup DA full name, or nil for other assets.
+function M.gate_key(full_name)
+    local kind = classify_da(full_name)
+    local key = da_name_to_key(full_name)
+    if not kind or not key then return nil end
+    return GATE_CLASS[kind] .. ":" .. key
+end
+
+--- Keys of every pickup whose check exists in this seed and isn't sent yet.
+---@param is_checked fun(location_id: number): boolean
+function M.open_pickup_keys(is_checked)
+    local keys = {}
+    if not M.pickup_checks then return keys end
+    for _, kind in ipairs(GATE_KINDS) do
+        local region = M.REGION[kind]
+        for i, name in ipairs(gate_names[kind]) do
+            local location_id = M.BASE_ID + (M.TABLE_OFFSET * region) + (i - 1)
+            if M.is_valid_location_id(location_id)
+                    and not M.is_pickup_location_excluded(kind, name)
+                    and not is_checked(location_id) then
+                keys[#keys + 1] = GATE_CLASS[kind] .. ":" .. name_to_key(name)
+            end
+        end
+    end
+    return keys
+end
+
+-- ---------------------------------------------------------------
 -- Island completion locations
 -- ---------------------------------------------------------------
 
