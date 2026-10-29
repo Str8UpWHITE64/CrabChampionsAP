@@ -12,6 +12,7 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 - **Location Checks** — Completing islands, finishing runs at specific ranks, and using specific equipment all count as checks that send items to other players.
 - **Ranked Difficulty Tiers** — Supports all 8 difficulty ranks from Bronze through Prismatic, with configurable check ranges.
 - **Cascade Mode** — Completing an island at a higher rank can automatically count for all lower ranks.
+- **Biome Lock** — Runs can only enter biomes you own the Access item for, and start in the biome you choose.
 - **Death Link** — Optional synchronized death across all connected players.
 - **Configurable Item Pool** — Control how many weapons/melee/abilities are in the pool, what filler items look like, and more.
 
@@ -180,6 +181,20 @@ The most specific "Complete Island X with Weapon on Rank" check is always kept.
 
 ---
 
+### Biomes
+
+The game has four biomes (Tropical, Arctic, Desert and Volcanic), seven islands each. Normally a run walks through them in that order.
+
+#### `biome_lock` (Default: on)
+Your runs can only enter biomes you own the **Access** item for: Tropical Access, Arctic Access, Desert Access and Volcanic Access. You start with the Access item of your starting biome; the other three are in the multiworld. When the next biome of a run is one you do not own, the run goes to a biome you do own instead, and repeats the same biome if it is the only one. The island numbers keep counting up, so island checks stay reachable with a single biome. The game's loop at island 29 starts again in your starting biome.
+
+Turn it off to play the game's normal biome order, with no Access items.
+
+#### `starting_biome` (Default: random)
+Which biome your runs start in when `biome_lock` is on: tropical, arctic, desert, volcanic or random. You own its Access item from the start. The biome name on the screen shows the biome you are really in.
+
+---
+
 ### Pickup Checks
 
 #### `granted_item_checks` (Default: true)
@@ -274,6 +289,7 @@ When enabled, dying in Crab Champions sends a death to all connected Death Link 
 - **Melee Mods** (17): Augmentations like Big Claws, Fire Claws
 - **Ability Mods** (45): Augmentations like Beam Turret, Homing Ability
 - **Filler**: Crystal Cache, Crystal Hoard, Crystal Jackpot, Perk Boost
+- **Biome Access** (4): Tropical Access, Arctic Access, Desert Access, Volcanic Access (only with `biome_lock`)
 - **Traps** (8): Crystal Tax, Slowdown, Weak Shots, Bruise, Grow, Shrink, Heavy Gravity, Floaty Gravity
 
 ## Difficulty Ranks

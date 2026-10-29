@@ -16,6 +16,7 @@ local PickupWatch = require("AP/PickupWatch")
 local Traps = require("AP/Traps")
 local Achievements = require("AP/Achievements")
 local ModifierUnlock = require("AP/ModifierUnlock")
+local BiomeLock = require("AP/BiomeLock")
 
 local APOverlay = nil
 pcall(function() APOverlay = require("AP/APOverlay") end)
@@ -81,7 +82,8 @@ local function on_item(it)
     -- the LoopAsync thread, so there's no need to defer.
     local identity = tostring(APClient.slot_data and APClient.slot_data.seed) .. "/" .. tostring(APClient.slot)
     local trap_ok, trap_handled = pcall(Traps.on_item, info, it.index, identity)
-    if not (trap_ok and trap_handled) then
+    local biome_ok, biome_handled = pcall(BiomeLock.on_item, info)
+    if not ((trap_ok and trap_handled) or (biome_ok and biome_handled)) then
         ItemApply.apply_item(item_id)
     end
 
@@ -583,6 +585,7 @@ local function on_slot_connected(slot_data)
     ItemData.resolve_game_objects()
     -- Configure location data and pickup watcher with slot options
     LocationData.configure(slot_data)
+    BiomeLock.configure(slot_data and slot_data.options or slot_data, same_session)
 
     -- Pre-allow items that are intentionally NOT AP-tracked, so picking
     -- them up naturally during a run doesn't trigger InventorySanitize to
@@ -931,6 +934,7 @@ APClient.on_location_info = on_location_info
 APClient.on_location_checked = on_location_checked
 APClient.on_disconnected = function(reason)
     restore_equipment_locks()
+    pcall(BiomeLock.deactivate)
     restore_all_descriptions()
     -- Clear description caches
     scouted_info = {}
@@ -954,6 +958,9 @@ PickupWatch.install(APClient)
 
 -- Trap watcher: delivers received traps and Perk Boosts, undoes timed effects
 Traps.install()
+
+-- Biome lock: keeps the next biome to one the player owns, and the HUD biome name right
+BiomeLock.install()
 
 -- Achievement block: on while connected
 Achievements.also_active = function() return APClient:is_slot_connected() end

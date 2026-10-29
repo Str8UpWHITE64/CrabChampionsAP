@@ -663,6 +663,32 @@ class PerkBoostLevelCap(Range):
     default = 5
 
 
+class BiomeLock(DefaultOnToggle):
+    """Runs can only enter biomes you own the Access item for (Tropical, Arctic,
+    Desert and Volcanic Access).  You start with the Access item of your
+    starting biome.  When the next biome of a run is one you do not own, the
+    run goes to a biome you do own instead, and repeats the same biome if it
+    is the only one.
+
+    Island checks stay reachable with a single biome, because a repeated
+    biome keeps counting up the island numbers.
+
+    Turn this off to play the game's normal biome order, with no Access items."""
+    display_name = "Biome Lock"
+
+
+class StartingBiome(Choice):
+    """The biome your runs start in when Biome Lock is on.  You own its Access
+    item from the start.  Random picks one of the four biomes for the seed."""
+    display_name = "Starting Biome"
+    # Numbered like the game's own biomes.
+    option_tropical = 1
+    option_arctic = 2
+    option_desert = 3
+    option_volcanic = 4
+    default = "random"
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Dataclass - option order controls display order in the WebUI
 # ──────────────────────────────────────────────────────────────────────────
@@ -686,6 +712,9 @@ class CrabChampsOption(PerGameCommonOptions):
     extra_rank_checks: ExtraRankChecks
     cascade_ranked_checks: CascadeRankedChecks
     minimize_run_checks: MinimizeRunChecks
+    # Biomes
+    biome_lock: BiomeLock
+    starting_biome: StartingBiome
     # Pickup checks
     pickup_checks: PickupChecks
     limit_pickup_pool: LimitPickupPool

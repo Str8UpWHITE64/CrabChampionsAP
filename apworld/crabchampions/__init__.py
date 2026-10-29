@@ -10,6 +10,7 @@ from .Items import (
     item_descriptions, BuildItemPool, weapon_item_names, melee_item_names,
     ability_item_names, GREED_ITEM_NAMES, PICKUP_TAG_REQUIREMENTS, TAG_PROVIDER_NAMES,
     select_pickup_subsets, PICKUP_INVENTORY_CAPS,
+    biome_access_item_names,
 )
 from .Locations import (
     CrabChampsLocation, CrabChampsLocationCategory, location_tables,
@@ -76,6 +77,8 @@ class CrabChampsWorld(World):
         # progression. Only the first copy of each provider needs to be
         # progression — `any(state.has(p))` is satisfied by one copy.
         self._provider_progression_marked: Set[str] = set()
+        # Game biome number (1-4) the runs start in; 0 while biome_lock is off.
+        self.start_biome: int = 0
 
     def generate_early(self):
         # Clamp max_rank >= required_rank
@@ -173,6 +176,13 @@ class CrabChampsWorld(World):
             self.starting_abilities = self.random.sample(self.pool_abilities, 1)
             for ability_name in self.starting_abilities:
                 self.multiworld.push_precollected(self.create_item(ability_name))
+
+        # Biome lock: the player starts with the Access item of the starting biome.
+        self.start_biome = 0
+        if self.options.biome_lock.value:
+            self.start_biome = self.options.starting_biome.value
+            self.multiworld.push_precollected(
+                self.create_item(biome_access_item_names[self.start_biome - 1]))
 
         equip_mode = self.options.equipment_check_mode.value  # 0=regular, 1=filler_only, 2=disabled
         minimize = bool(self.options.minimize_run_checks.value)
@@ -533,6 +543,14 @@ class CrabChampsWorld(World):
                     itempool.append(self.create_item(slot_name))
                     slot_item_count += 1
 
+        # Biome Access items for the biomes the player does not start in; the
+        # starting biome's item is precollected.
+        if self.options.biome_lock.value:
+            for i, access_name in enumerate(biome_access_item_names):
+                if i + 1 != self.start_biome:
+                    itempool.append(self.create_item(access_name))
+                    slot_item_count += 1
+
         # Exclude greed items from pool when greed_item_mode == skip (2)
         exclude = GREED_ITEM_NAMES if self.options.greed_item_mode.value == 2 else None
         # When limit_pickup_pool is on, only items in the chosen subset are
@@ -607,7 +625,7 @@ class CrabChampsWorld(World):
                 classification = ItemClassification.progression
             else:
                 classification = ItemClassification.useful
-        elif item_cat == CrabChampsItemCategory.SLOT:
+        elif item_cat in (CrabChampsItemCategory.SLOT, CrabChampsItemCategory.BIOME):
             classification = ItemClassification.progression
         elif item_cat == CrabChampsItemCategory.TRAP:
             classification = ItemClassification.trap
@@ -622,6 +640,18 @@ class CrabChampsWorld(World):
 
     def get_filler_item_name(self) -> str:
         return "Crystal Cache"
+
+    def has_biome_access(self, state, biome: int) -> bool:
+        """Whether the player can enter a biome (game number 1-4).
+
+        No location needs this yet: island numbers keep counting when a biome
+        repeats, so every island check is reachable with the starting biome
+        alone.  A check tied to one biome (a per-biome check, for example) gets
+        `lambda state: self.has_biome_access(state, biome)` as its rule.
+        """
+        if not self.options.biome_lock.value:
+            return True
+        return state.has(biome_access_item_names[biome - 1], self.player)
 
     def set_rules(self) -> None:
         required_rank = self.options.required_rank.value
@@ -786,6 +816,10 @@ class CrabChampsWorld(World):
                 "starting_melee_mod_slots": self.options.starting_melee_mod_slots.value,
                 "starting_item_percentage": self.options.starting_item_percentage.value,
                 "biome_item_percentage": self.options.biome_item_percentage.value,
+                "biome_lock": bool(self.options.biome_lock.value),
+                # Game biome number (Tropical 1, Arctic 2, Desert 3, Volcanic 4)
+                # the runs start in; 0 when biome_lock is off.
+                "starting_biome": self.start_biome,
                 "death_link": bool(self.options.death_link.value),
                 "trap_percentage": self.options.trap_percentage.value,
                 "trap_duration": self.options.trap_duration.value,

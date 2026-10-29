@@ -25,6 +25,7 @@ M.CATEGORY = {
     FILLER     = 10,
     SLOT       = 11,
     TRAP       = 12,
+    BIOME      = 13,
 }
 
 -- UE4 class name for each category
@@ -203,6 +204,12 @@ add(967, M.CATEGORY.TRAP, "Floaty Gravity Trap")
 
 -- Perk Boost (cc_code 970): +1 level on a perk the player holds
 add(970, M.CATEGORY.FILLER, "Perk Boost")
+
+-- Biome Access (cc_code 980-983), in the game's biome order
+add(980, M.CATEGORY.BIOME, "Tropical Access")
+add(981, M.CATEGORY.BIOME, "Arctic Access")
+add(982, M.CATEGORY.BIOME, "Desert Access")
+add(983, M.CATEGORY.BIOME, "Volcanic Access")
 
 -- Event (cc_code 1000)
 add(1000, M.CATEGORY.EVENT, "Victory")

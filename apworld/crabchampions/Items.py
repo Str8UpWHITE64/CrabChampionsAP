@@ -18,6 +18,7 @@ class CrabChampsItemCategory(IntEnum):
     FILLER = 10
     SLOT = 11
     TRAP = 12
+    BIOME = 13
 
 
 class CrabChampsItemData(NamedTuple):
@@ -265,6 +266,17 @@ _trap_items = [
     CrabChampsItemData("Floaty Gravity Trap", 967, CrabChampsItemCategory.TRAP),    # weaker gravity for a while
 ]
 
+# ──────────────────────────────────────────────
+# Biome access  (cc_code 980–983), one per biome in the game's own order
+# (Tropical 1, Arctic 2, Desert 3, Volcanic 4).  Only used with biome_lock.
+# ──────────────────────────────────────────────
+_biome_items = [
+    CrabChampsItemData("Tropical Access", 980, CrabChampsItemCategory.BIOME),
+    CrabChampsItemData("Arctic Access", 981, CrabChampsItemCategory.BIOME),
+    CrabChampsItemData("Desert Access", 982, CrabChampsItemCategory.BIOME),
+    CrabChampsItemData("Volcanic Access", 983, CrabChampsItemCategory.BIOME),
+]
+
 # Option name (Options.py) -> trap item name, in a fixed order
 TRAP_WEIGHT_OPTIONS = {
     "trap_weight_crystal_tax": "Crystal Tax",
@@ -301,9 +313,13 @@ _all_items: List[CrabChampsItemData] = (
     + _slot_items
     + _trap_items
     + _boost_items
+    + _biome_items
 )
 
-item_descriptions: Dict[str, str] = {}
+item_descriptions: Dict[str, str] = {
+    item.name: "Lets your runs enter the " + item.name.split()[0] + " biome."
+    for item in _biome_items
+}
 
 item_dictionary: Dict[str, CrabChampsItemData] = {item.name: item for item in _all_items}
 
@@ -316,6 +332,10 @@ melee_item_names = [item.name for item in _melee_items]
 weapon_mod_item_names = [item.name for item in _weapon_mod_items]
 melee_mod_item_names = [item.name for item in _melee_mod_items]
 ability_mod_item_names = [item.name for item in _ability_mod_items]
+
+# Biome names and access items, indexed by the game's biome number minus one.
+BIOME_NAMES = ["Tropical", "Arctic", "Desert", "Volcanic"]
+biome_access_item_names = [item.name for item in _biome_items]
 
 # Greed items: cannot be dropped once picked up.
 # When greed_item_mode == "skip", these are excluded from the item/location pools.
