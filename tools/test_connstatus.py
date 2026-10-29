@@ -23,12 +23,15 @@ clock = 0
 os.clock = function() return clock end
 loops = {{}}
 function LoopAsync(ms, fn) loops[#loops + 1] = fn end
+-- Two background ticks: the GameThread driver leaves one full tick between pumps.
 function run_loops()
-    local keep = {{}}
-    for _, fn in ipairs(loops) do
-        if not fn() then keep[#keep + 1] = fn end
+    for _ = 1, 2 do
+        local keep = {{}}
+        for _, fn in ipairs(loops) do
+            if not fn() then keep[#keep + 1] = fn end
+        end
+        loops = keep
     end
-    loops = keep
 end
 local proxy
 proxy = setmetatable({{}}, {{
@@ -77,6 +80,8 @@ check("no start", CS.timed_out(None, 50, 10) is False)
 
 # --- overlay --------------------------------------------------------------
 O = lua.execute("return (require('AP/APOverlay'))")
+# The mod has loaded: arm the scheduler and let its grace period pass.
+lua.execute("require('AP/GameThread').loaded(); for _ = 1, 130 do run_loops() end")
 O.create({"server": "127.0.0.1:1", "slot": "Crab", "password": ""})
 check("created", O.is_initialized())
 O.set_info_provider(lua.eval("function() return {server='127.0.0.1:1', slot='Crab', seed='123', items=4, checked=7} end"))

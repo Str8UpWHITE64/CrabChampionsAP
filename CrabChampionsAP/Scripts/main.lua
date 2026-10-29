@@ -3,10 +3,14 @@
 -- No external Python bridge required.
 --
 -- THREADING MODEL:
--- All DLL interaction (client creation + polling) runs in a LoopAsync
--- callback on a single consistent thread, as required by lua-apclientpp.
--- RegisterHook callbacks run on the game thread and only queue data
--- (location checks, chat) for the LoopAsync thread to send.
+-- Everything runs on the game thread, through one scheduler (AP/GameThread.lua):
+-- timers use GameThread.loop / GameThread.after, deferred work GameThread.run,
+-- and key binds (which UE4SS calls from another thread) GameThread.signal.
+-- UE4SS 3.0.1 shares one Lua state between its LoopAsync thread and the game
+-- thread without a lock, so Lua running on both at once corrupts it (crashes in
+-- UE4SS.dll, freezes). Never call LoopAsync or ExecuteInGameThread directly.
+-- The AP client is created and polled inside one persistent coroutine, as
+-- lua-apclientpp requires (see AP/APClient.lua).
 
 local APClient = require("AP/APClient")
 local ItemApply = require("AP/ItemApply")
@@ -17,6 +21,10 @@ local Traps = require("AP/Traps")
 local Achievements = require("AP/Achievements")
 local ModifierUnlock = require("AP/ModifierUnlock")
 local BiomeLock = require("AP/BiomeLock")
+local GameThread = require("AP/GameThread")
+-- The driver starts here, outside any coroutine (LoopAsync is a UE4SS function), but queues nothing until
+-- GameThread.loaded() at the end of this file: hooks registered while it queues work can lose their Lua thread.
+GameThread.start()
 
 local APOverlay = nil
 pcall(function() APOverlay = require("AP/APOverlay") end)
@@ -59,7 +67,7 @@ local function try_create_overlay()
 end
 
 ------------------------------------------------------------
--- AP Callbacks (fired from LoopAsync thread during poll)
+-- AP Callbacks (fired during poll, run on the game thread via GameThread.wrap)
 ------------------------------------------------------------
 
 -- Forward declaration: set later once the description system is defined
@@ -78,8 +86,7 @@ local function on_item(it)
     ))
 
     -- Traps and Perk Boosts are handled by their own module (with its own
-    -- replay ledger); everything else is applied right away. This runs on
-    -- the LoopAsync thread, so there's no need to defer.
+    -- replay ledger); everything else is applied right away.
     local identity = tostring(APClient.slot_data and APClient.slot_data.seed) .. "/" .. tostring(APClient.slot)
     local trap_ok, trap_handled = pcall(Traps.on_item, info, it.index, identity)
     local biome_ok, biome_handled = pcall(BiomeLock.on_item, info)
@@ -446,6 +453,23 @@ local function restore_all_descriptions()
     log("Restored original descriptions on " .. total .. " DAs")
 end
 
+--- Look up the item and player names for scouted entries. Uses the AP client,
+--- so it runs on the client's poll thread, before the entries go to the game thread.
+local function resolve_scout_names(items)
+    if type(items) ~= "table" then return end
+    for _, entry in ipairs(items) do
+        pcall(function()
+            local item_id = tonumber(entry.item)
+            local player_slot = tonumber(entry.player)
+            if not item_id or not player_slot then return end
+            local player_game = nil
+            pcall(function() player_game = APClient._client:get_player_game(player_slot) end)
+            pcall(function() entry.item_name = APClient._client:get_item_name(item_id, player_game or "") end)
+            pcall(function() entry.player_name = APClient._client:get_player_alias(player_slot) end)
+        end)
+    end
+end
+
 --- Handle scouted location info from the AP server.
 local function on_location_info(items)
     if type(items) ~= "table" then return end
@@ -462,16 +486,9 @@ local function on_location_info(items)
             local da_info = location_to_da[loc_id]
             if not da_info then return end
 
-            -- Resolve item name and player name
-            local player_game = nil
-            pcall(function() player_game = APClient._client:get_player_game(player_slot) end)
-            local item_name = nil
-            pcall(function() item_name = APClient._client:get_item_name(item_id, player_game or "") end)
-            item_name = item_name or ("Item#" .. tostring(item_id))
-
-            local player_name = nil
-            pcall(function() player_name = APClient._client:get_player_alias(player_slot) end)
-            player_name = player_name or ("Player" .. tostring(player_slot))
+            -- Names were looked up by resolve_scout_names on the poll thread
+            local item_name = entry.item_name or ("Item#" .. tostring(item_id))
+            local player_name = entry.player_name or ("Player" .. tostring(player_slot))
 
             -- Cache scouted info for live re-rendering
             scouted_info[loc_id] = {
@@ -763,7 +780,7 @@ local function on_slot_connected(slot_data)
     -- Deferred victory check: on reconnect, the server sends already-checked
     -- locations via location_checked handler AFTER slot_connected.  Wait a few
     -- poll cycles so _checked is populated, then see if victory was already earned.
-    LoopAsync(3000, function()
+    GameThread.loop(3000, function()
         if PickupWatch.check_victory() then
             clog("STATUS", "Victory conditions already met on reconnect — sending goal!")
         end
@@ -807,7 +824,7 @@ local function on_slot_connected(slot_data)
     if LocationData.pickup_checks then
         build_location_da_map()
         -- Delay scouting slightly so the server has time to send checked locations first
-        LoopAsync(2000, function()
+        GameThread.loop(2000, function()
             scout_all_pickups()
             return true
         end)
@@ -829,7 +846,7 @@ local function kill_player(cause)
         end
 
         -- Step 2: After a delay, trigger the game over screen
-        LoopAsync(1500, function()
+        GameThread.loop(1500, function()
             pcall(function()
                 local all_gm = FindAllOf("CrabGM")
                 if all_gm and all_gm[1] and all_gm[1]:IsValid() then
@@ -847,7 +864,7 @@ local function execute_deathlink(kill_cause)
     deathlink_killing = true
     kill_player(kill_cause)
     -- Reset flag after a delay to prevent bounce-back
-    LoopAsync(2000, function()
+    GameThread.loop(2000, function()
         deathlink_killing = false
         return true
     end)
@@ -901,7 +918,7 @@ local function on_deathlink(source, cause)
     -- If paused, wait until unpaused to apply the kill
     if is_game_paused() then
         log("DeathLink received while paused — waiting for unpause...")
-        LoopAsync(250, function()
+        GameThread.loop(250, function()
             if ItemApply.in_lobby then
                 log("DeathLink cancelled — player returned to lobby while paused")
                 return true  -- stop polling
@@ -923,16 +940,21 @@ end
 -- Initialize AP Client
 ------------------------------------------------------------
 
-APClient.on_item = on_item
-APClient.on_message = on_message
-APClient.on_slot_connected = on_slot_connected
-APClient.on_deathlink = on_deathlink
-APClient.on_item_send = function(info)
+-- The client fires these during its poll; each one runs afterwards on the game thread, in order.
+APClient.on_item = GameThread.wrap(on_item)
+APClient.on_message = GameThread.wrap(on_message)
+APClient.on_slot_connected = GameThread.wrap(on_slot_connected)
+APClient.on_deathlink = GameThread.wrap(on_deathlink)
+APClient.on_item_send = GameThread.wrap(function(info)
     if APOverlay then APOverlay.add_feed_item(info) end
+end)
+local on_location_info_game = GameThread.wrap(on_location_info)
+APClient.on_location_info = function(items)
+    resolve_scout_names(items)
+    on_location_info_game(items)
 end
-APClient.on_location_info = on_location_info
-APClient.on_location_checked = on_location_checked
-APClient.on_disconnected = function(reason)
+APClient.on_location_checked = GameThread.wrap(on_location_checked)
+APClient.on_disconnected = GameThread.wrap(function(reason)
     restore_equipment_locks()
     pcall(BiomeLock.deactivate)
     restore_all_descriptions()
@@ -941,10 +963,10 @@ APClient.on_disconnected = function(reason)
     received_da_set = {}
     location_to_da = {}
     if APOverlay then APOverlay.set_disconnected(reason) end
-end
-APClient.on_slot_refused = function(reason_str)
+end)
+APClient.on_slot_refused = GameThread.wrap(function(reason_str)
     if APOverlay then APOverlay.set_disconnected("Refused: " .. tostring(reason_str)) end
-end
+end)
 
 local config_path = "Mods/CrabChampionsAP/Scripts/ap_config.json"
 local init_ok = APClient:init(config_path)
@@ -967,7 +989,7 @@ Achievements.also_active = function() return APClient:is_slot_connected() end
 Achievements.install()
 
 -- Keep the difficulty modifier buttons unlocked while connected (the menu redraws them whenever it opens).
-LoopAsync(300, function()
+GameThread.loop(300, function()
     pcall(ModifierUnlock.tick)
     return false
 end)
@@ -1027,7 +1049,7 @@ if inv_sanitize_ok then
     -- Hook pickup events to sanitize inventory when game gives perks/mods/relics
     RegisterHook("/Script/CrabChampions.CrabPC:ClientOnPickedUpPickup", function(Context, PickupDA)
         -- Delay slightly so the game finishes adding the item to inventory
-        LoopAsync(300, function()
+        GameThread.loop(300, function()
             inv_sanitize.sanitize_all_players()
             return true  -- run once
         end)
@@ -1036,21 +1058,21 @@ if inv_sanitize_ok then
     -- Hook portal/island events (game may grant items during transitions)
     RegisterHook("/Script/CrabChampions.CrabPC:ClientOnEnteredPortal", function(Context, ...)
         pcall(ModifierUnlock.pause, 8)
-        LoopAsync(500, function()
+        GameThread.loop(500, function()
             inv_sanitize.sanitize_all_players()
             return true
         end)
     end)
 
     RegisterHook("/Script/CrabChampions.CrabPC:ClientOnClearedIsland", function(Context, ...)
-        LoopAsync(500, function()
+        GameThread.loop(500, function()
             inv_sanitize.sanitize_all_players()
             return true
         end)
     end)
 
     -- Periodic safety net: sanitize every 2 seconds if allowed sets are populated
-    LoopAsync(2000, function()
+    GameThread.loop(2000, function()
         inv_sanitize.sanitize_all_players()
         return false  -- keep looping
     end)
@@ -1078,8 +1100,8 @@ end
 
 -- Overlay keybinds
 -- F4: Toggle connection/progress panel
-RegisterKeyBind(Key.F4, function()
-    ExecuteInGameThread(function()
+RegisterKeyBind(Key.F4, GameThread.signal(function()
+    GameThread.run(function()
         if APOverlay then
             if not APOverlay.is_initialized() then try_create_overlay() end
             if APOverlay.is_initialized() then
@@ -1089,11 +1111,11 @@ RegisterKeyBind(Key.F4, function()
             end
         end
     end)
-end)
+end))
 
 -- F3: Connect/disconnect using overlay input fields
-RegisterKeyBind(Key.F3, function()
-    ExecuteInGameThread(function()
+RegisterKeyBind(Key.F3, GameThread.signal(function()
+    GameThread.run(function()
         if APClient:is_slot_connected() or APClient:is_connected() then
             log("Disconnecting from AP server...")
             APClient:queue_command("disconnect")
@@ -1113,7 +1135,7 @@ RegisterKeyBind(Key.F3, function()
             APClient:queue_command("connect")
         end
     end)
-end)
+end))
 
 -- What the panel shows while connected, and what to do when the server never answers.
 if APOverlay and APOverlay.set_info_provider then
@@ -1151,14 +1173,14 @@ end
 -- Recreate overlay on level transitions
 pcall(function()
     RegisterHook("/Script/Engine.PlayerController:ClientRestart", function()
-        ExecuteInGameThread(function()
+        GameThread.run(function()
             try_create_overlay()
         end)
     end)
 end)
 
 -- Initial overlay creation (deferred to game thread)
-ExecuteInGameThread(function()
+GameThread.run(function()
     try_create_overlay()
 end)
 
@@ -1171,8 +1193,8 @@ AP.SlotLock = SlotLock
 log("SlotLock loaded and installed")
 
 -- F1: Test equip lock — only Auto Rifle allowed
-RegisterKeyBind(Key.F1, function()
-    LoopAsync(1, function()
+RegisterKeyBind(Key.F1, GameThread.signal(function()
+    GameThread.loop(1, function()
         if not ItemData.is_resolved() then ItemData.resolve_game_objects() end
         local equip_lock = _G.AP and _G.AP.equip_lock or nil
         if not equip_lock then log("F1: No equip_lock"); return true end
@@ -1192,11 +1214,11 @@ RegisterKeyBind(Key.F1, function()
         log("F1: Locked to Auto Rifle / Grenade / Hammer — try switching weapons!")
         return true
     end)
-end)
+end))
 
 -- F2: Unlock Crossbow as additional weapon
-RegisterKeyBind(Key.F2, function()
-    LoopAsync(1, function()
+RegisterKeyBind(Key.F2, GameThread.signal(function()
+    GameThread.loop(1, function()
         if not ItemData.is_resolved() then ItemData.resolve_game_objects() end
         local equip_lock = _G.AP and _G.AP.equip_lock or nil
         if not equip_lock then log("F2: No equip_lock"); return true end
@@ -1208,14 +1230,14 @@ RegisterKeyBind(Key.F2, function()
         end
         return true
     end)
-end)
+end))
 
 -- F9: Dump every pickup DA to a timestamped file: asset and display name,
 -- rarity (greed is a rarity), loot pool and pickup tag. Used when porting a
 -- new game build, so it also flags items the client doesn't know yet and
 -- prints every tag ID it finds rather than a fixed range.
-RegisterKeyBind(Key.F9, function()
-    LoopAsync(1, function()
+RegisterKeyBind(Key.F9, GameThread.signal(function()
+    GameThread.loop(1, function()
         log("=== DUMPING PICKUP DATA ===")
         if not ItemData.is_resolved() then ItemData.resolve_game_objects() end
 
@@ -1351,11 +1373,11 @@ RegisterKeyBind(Key.F9, function()
 
         return true
     end)
-end)
+end))
 
 -- F11: Toggle equipment lock state (lock all / restore originals)
-RegisterKeyBind(Key.F11, function()
-    LoopAsync(1, function()
+RegisterKeyBind(Key.F11, GameThread.signal(function()
+    GameThread.loop(1, function()
         if next(original_unlock_flags) then
             restore_equipment_locks()
             log("F11: Equipment locks restored")
@@ -1365,6 +1387,9 @@ RegisterKeyBind(Key.F11, function()
         end
         return true
     end)
-end)
+end))
 
 log("  F1 = Lock to Auto Rifle | F2 = Unlock Crossbow | F3 = Connect | F4 = Overlay | F9 = Dump pickup data | F11 = Toggle unlock all")
+
+-- Every hook is registered: the scheduler may start running work on the game thread (after a short grace).
+GameThread.loaded()

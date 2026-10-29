@@ -106,8 +106,10 @@ function Console.init(ap_client, cfg_path)
     client = ap_client
 
     -- Register keybinds
-    RegisterKeyBind(Key.F7, on_reload_config)
-    RegisterKeyBind(Key.F8, on_print_status)
+    -- UE4SS calls key binds from another thread: only set a flag there, the work runs on the game thread.
+    local GameThread = require("AP/GameThread")
+    RegisterKeyBind(Key.F7, GameThread.signal(on_reload_config))
+    RegisterKeyBind(Key.F8, GameThread.signal(on_print_status))
 
     -- Print help banner
     Console.log("INFO", "=== Archipelago Controls ===")

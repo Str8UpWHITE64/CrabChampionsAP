@@ -38,6 +38,8 @@
 -- REQUIRES:
 --   C++ mod functions: AP_SetSlotCount, AP_GetSlotCount, AP_RefreshInventoryUI
 
+local GameThread = require("AP/GameThread")
+
 local M = {}
 
 local function log(msg) print("[CrabAP-SlotLock] " .. tostring(msg)) end
@@ -102,7 +104,7 @@ function M.install()
         end)
 
         -- After the function runs, revert slot count and refund crystals
-        LoopAsync(1, function()
+        GameThread.loop(1, function()
             if AP_SetSlotCount and target then
                 AP_SetSlotCount(slot_type, target)
 
@@ -125,7 +127,7 @@ function M.install()
     -- Starting a run resets every slot count to the game's own default (8),
     -- which hides received slots past 8 and hands out unearned ones below it.
     -- No hook marks that moment reliably, so poll and correct any drift.
-    LoopAsync(WATCHDOG_MS, function()
+    GameThread.loop(WATCHDOG_MS, function()
         pcall(M.enforce)
         return false
     end)
@@ -185,7 +187,7 @@ function M.set_slots(slot_type, count)
     active = true
 
     -- Apply immediately via C++ mod
-    LoopAsync(1, function()
+    GameThread.loop(1, function()
         if HARD_LIMIT_TYPES[slot_type] then
             if AP_SetHardLimit then
                 AP_SetHardLimit(slot_type, count)
@@ -214,7 +216,7 @@ function M.add_slots(slot_type, amount)
     local new_count = math.min(current + amount, max)
     locked_counts[slot_type] = new_count
 
-    LoopAsync(1, function()
+    GameThread.loop(1, function()
         if HARD_LIMIT_TYPES[slot_type] then
             if AP_SetHardLimit then
                 AP_SetHardLimit(slot_type, new_count)
@@ -268,7 +270,7 @@ end
 function M.disable()
     active = false
 
-    LoopAsync(1, function()
+    GameThread.loop(1, function()
         for slot_type, max in pairs(DEFAULTS) do
             if HARD_LIMIT_TYPES[slot_type] then
                 if AP_SetHardLimit then AP_SetHardLimit(slot_type, max) end

@@ -5,6 +5,8 @@
 -- modifiers at button level), but while the mod is connected every achievement write the
 -- game makes is turned into a zero-progress write, which Steam ignores. Outside a connection nothing is touched.
 
+local GameThread = require("AP/GameThread")
+
 local M = {}
 
 -- Optional callback, called with each log message (for debug tools).
@@ -120,7 +122,7 @@ function M.install()
     if attempt() then return end
     if type(LoopAsync) ~= "function" then return end
     local tries = 0
-    LoopAsync(2000, function()
+    GameThread.loop(2000, function()
         tries = tries + 1
         if attempt() then return true end
         if tries >= 60 then

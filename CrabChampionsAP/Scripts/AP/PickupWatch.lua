@@ -7,6 +7,7 @@
 -- Cascade: when enabled, completing at rank R also checks ranks < R
 
 local LocationData = require("AP/LocationData")
+local GameThread = require("AP/GameThread")
 
 local M = {}
 
@@ -400,7 +401,7 @@ function M.install(ap_client)
 
         local remove_kind = kind
         local remove_fn = full_name
-        LoopAsync(200, function()
+        GameThread.loop(200, function()
             remove_item(remove_kind, remove_fn)
             -- Retry overflow items — removing an item freed a slot
             pcall(function()
@@ -619,7 +620,7 @@ function M.install(ap_client)
         end
 
         -- Retry overflow items — clearing an island may grant new inventory slots
-        LoopAsync(500, function()
+        GameThread.loop(500, function()
             local ok, ItemApply = pcall(require, "AP/ItemApply")
             if ok and ItemApply and ItemApply.retry_overflow then
                 ItemApply.retry_overflow()
@@ -662,7 +663,7 @@ function M.install(ap_client)
         NotifyOnNewObject("/Script/Engine.CheatManager", function(CreatedObject)
             log("CheatManager constructed — lobby detected")
             -- Defer so the world is fully initialized and player objects exist
-            LoopAsync(2000, function()
+            GameThread.loop(2000, function()
                 log("Lobby re-apply: resetting island counter and re-spawning run items")
                 island_counter = 0
                 -- Signal ItemApply that we're back in the lobby (spawning is safe again)
@@ -700,7 +701,7 @@ function M.install(ap_client)
             local ItemApply = require("AP/ItemApply")
             if ItemApply.overflow_count() > 0 then
                 -- Delay to let the removal complete before retrying
-                LoopAsync(500, function()
+                GameThread.loop(500, function()
                     ItemApply.retry_overflow()
                     return true
                 end)

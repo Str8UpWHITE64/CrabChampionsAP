@@ -14,6 +14,7 @@ from lupa import LuaRuntime
 REPO = Path(__file__).resolve().parent.parent
 
 lua = LuaRuntime(unpack_returned_tuples=True)
+lua.execute("package.path = [[%s/?.lua;]] .. package.path" % (REPO / "CrabChampionsAP/Scripts").as_posix())  # finds AP/GameThread
 lua.execute("""
 print = function() end
 hooks = {}

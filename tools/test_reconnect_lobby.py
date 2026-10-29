@@ -105,6 +105,7 @@ def send_items(IA, n, start=0):
 
 def fresh(pct=50):
     lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute("package.path = [[%s/?.lua;]] .. package.path" % (REPO / "CrabChampionsAP/Scripts").as_posix())  # finds AP/GameThread
     lua.execute(f"pct = {pct}")
     lua.execute(SETUP)
     return lua, lua.execute(SRC)

@@ -1,10 +1,15 @@
 -- AP/APClient.lua
 -- High-level Archipelago client for Crab Champions (UE4SS + lua-apclientpp)
 --
--- IMPORTANT: lua-apclientpp requires that instantiation and poll() happen
--- on the SAME thread. UE4SS mod loading and RegisterHook callbacks run on
--- different Lua states/threads. So ALL DLL interaction (creation, handlers,
--- polling) must happen inside a single LoopAsync callback.
+-- IMPORTANT: lua-apclientpp binds a client to the Lua thread (lua_State) it
+-- was created in and refuses calls from any other one ("Lua state changed").
+-- ALL DLL interaction (creation, handlers, polling) therefore happens inside
+-- one persistent coroutine, resumed every 500 ms on the game thread by
+-- AP/GameThread.lua. (It used to be a LoopAsync callback, but Lua running on
+-- the LoopAsync thread races the game thread's Lua and corrupts UE4SS 3.0.1's
+-- shared Lua state.) UE4SS functions, print included, can't be called inside
+-- a coroutine UE4SS didn't create, so print is buffered while it runs, and the
+-- callbacks (on_item, ...) are wrapped by main.lua to run after the poll.
 
 local APClientWrapper = require("AP/APClientWrapper")
 local APConfig = require("AP/APConfig")
@@ -47,7 +52,7 @@ local Client = {
     -- checks until the next connect.
     _layout_mismatch = false,
 
-    -- Outgoing queues (populated by hooks, consumed by LoopAsync)
+    -- Outgoing queues (populated by hooks, consumed by the poll)
     _outgoing_checks = {},   -- array of location_ids to send
     -- Seed and slot the outgoing queue belongs to. Nil until a slot connects,
     -- so checks made before connecting are ignored rather than queued.
@@ -56,7 +61,7 @@ local Client = {
     _outgoing_say = {},      -- array of chat messages
     _outgoing_status = nil,  -- status code to send
 
-    -- Command queue (populated by Console keybinds on game thread, consumed by LoopAsync)
+    -- Command queue (populated on the game thread, consumed by the poll)
     _pending_commands = {},  -- array of {cmd=string, args=table}
     _config_path = nil,      -- stored for config reload
 
@@ -86,8 +91,8 @@ Client.STATUS_PLAYING  = 20
 Client.STATUS_GOAL     = 30
 
 --- Initialize the AP client (config only).
---- DLL interaction is deferred to a LoopAsync callback so that
---- instantiation and polling happen on the same thread.
+--- DLL interaction is deferred to the poll coroutine so that
+--- instantiation and polling happen on the same Lua thread.
 ---@param config_path string|nil Path to ap_config.json
 ---@return boolean success
 function Client:init(config_path)
@@ -121,12 +126,13 @@ function Client:init(config_path)
     return true
 end
 
---- Start LoopAsync that owns all DLL interaction.
---- This ensures instantiation + poll run on the same thread.
+--- Start the poll that owns all DLL interaction.
+--- The client is created and polled inside one persistent coroutine, so every
+--- DLL call sees the same lua_State.
 function Client:_start_async_loop()
     local self_ref = self
 
-    LoopAsync(500, function()
+    local function step()
         -- Always process commands, even when disabled (needed for reconnect)
         if #self_ref._pending_commands > 0 then
             local cmds = self_ref._pending_commands
@@ -160,16 +166,52 @@ function Client:_start_async_loop()
         end)
 
         if not ok then
-            log("Async loop error: " .. tostring(err))
+            log("Poll error: " .. tostring(err))
         end
+    end
 
-        return false -- keep looping
+    local ok_gt, GameThread = pcall(require, "AP/GameThread")
+    if not (ok_gt and type(GameThread) == "table" and type(ExecuteInGameThread) == "function") then
+        -- Offline tests: no game thread, poll on LoopAsync as before.
+        LoopAsync(500, function() step(); return false end)
+        log("Poll started (500ms, LoopAsync) — client will connect on first tick")
+        return
+    end
+
+    local co = coroutine.create(function()
+        while true do
+            step()
+            coroutine.yield()
+        end
+    end)
+    self._poll_co = co   -- never dropped: the native client keeps a pointer to this Lua thread
+    local buffered = {}
+    local function buffer_print(...)
+        local parts = table.pack(...)
+        for k = 1, parts.n do parts[k] = tostring(parts[k]) end
+        buffered[#buffered + 1] = table.concat(parts, " ", 1, parts.n)
+    end
+    GameThread.loop(500, function()
+        local real_print = print
+        print = buffer_print
+        local ok, err = coroutine.resume(co)
+        print = real_print
+        if #buffered > 0 then
+            local lines = buffered
+            buffered = {}
+            for k = 1, #lines do real_print(lines[k]) end
+        end
+        if not ok then
+            log("Poll stopped on error: " .. tostring(err))
+            return true
+        end
+        return false -- keep polling
     end)
 
-    log("LoopAsync started (500ms) — client will connect on first tick")
+    log("Poll started (500ms, game thread) — client will connect on first tick")
 end
 
---- Create the native client (called from LoopAsync thread).
+--- Create the native client (called from the poll coroutine).
 function Client:_create_client()
     self._deferred_init = false
 
@@ -492,7 +534,7 @@ function Client:_on_bounced(bounce)
 end
 
 -- ---------------------------------------------------------------
--- Outgoing queue processing (runs in LoopAsync thread)
+-- Outgoing queue processing (runs in the poll coroutine)
 -- ---------------------------------------------------------------
 
 function Client:_process_outgoing()
@@ -619,10 +661,15 @@ function Client:_apply_pending_items()
 
         idx = chunk_end + 1
         if idx <= #items then
-            LoopAsync(ITEM_APPLY_DELAY_MS, function()
-                process_chunk()
-                return true  -- run once
-            end)
+            local ok_gt, GameThread = pcall(require, "AP/GameThread")
+            if ok_gt and type(GameThread) == "table" then
+                GameThread.after(ITEM_APPLY_DELAY_MS, process_chunk)
+            else
+                LoopAsync(ITEM_APPLY_DELAY_MS, function()
+                    process_chunk()
+                    return true  -- run once
+                end)
+            end
         else
             _item_apply_running = false
             -- Process any new items that arrived while we were working
@@ -636,10 +683,10 @@ function Client:_apply_pending_items()
 end
 
 -- ---------------------------------------------------------------
--- Command execution (runs on LoopAsync thread)
+-- Command execution (runs in the poll coroutine)
 -- ---------------------------------------------------------------
 
---- Execute a queued command on the LoopAsync thread.
+--- Execute a queued command in the poll coroutine.
 ---@param cmd string Command name: "connect", "disconnect", "reload_config"
 ---@param args table|nil Optional arguments
 function Client:_execute_command(cmd, args)
@@ -685,8 +732,8 @@ function Client:_execute_command(cmd, args)
     end
 end
 
---- Queue a command for execution on the LoopAsync thread.
---- Safe to call from the game thread (RegisterKeyBind, RegisterHook).
+--- Queue a command for the next poll.
+--- Call it from the game thread (hooks, timers, jobs).
 ---@param cmd string Command name
 ---@param args table|nil Optional arguments
 function Client:queue_command(cmd, args)
@@ -697,7 +744,7 @@ function Client:queue_command(cmd, args)
 end
 
 -- ---------------------------------------------------------------
--- Public API (safe to call from any thread — queues for LoopAsync)
+-- Public API (call from the game thread — queues for the poll)
 -- ---------------------------------------------------------------
 
 --- Queue a location check by numeric ID.

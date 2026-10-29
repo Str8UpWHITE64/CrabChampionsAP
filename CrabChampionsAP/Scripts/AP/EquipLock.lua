@@ -4,6 +4,8 @@
 -- Uses C++ mod (AP_EquipLock_*) for enforcement when available,
 -- falls back to Lua-based ServerEquipInventory calls otherwise.
 
+local GameThread = require("AP/GameThread")
+
 local M = {}
 
 local function log(msg) print("[CrabAP-EquipLock] " .. tostring(msg)) end
@@ -386,7 +388,7 @@ function M.install()
                 -- Strip the bundled mods directly on the hook thread (RPCs work here)
                 strip_bundled_mods(wname)
                 -- Clear suppression after a delay to ensure pickup hooks have fired
-                LoopAsync(1000, function()
+                GameThread.loop(1000, function()
                     M.suppressed_mods = {}
                     return true
                 end)
@@ -448,7 +450,7 @@ function M.install()
     end)
 
     -- Periodic enforcement loop
-    LoopAsync(500, function()
+    GameThread.loop(500, function()
         if pending_enforce then
             pending_enforce = false
             do_enforce("deferred")

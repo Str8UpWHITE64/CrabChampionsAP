@@ -6,6 +6,7 @@
 local APOverlay = {}
 
 local ConnStatus = require("AP/ConnStatus")
+local GameThread = require("AP/GameThread")
 
 local UEHelpers = nil
 pcall(function() UEHelpers = require("UEHelpers") end)
@@ -588,7 +589,7 @@ end
 
 local function start_input_watchdog()
     if release_check then pcall(release_check, true) end   -- remember the state at open
-    LoopAsync(500, function()
+    GameThread.loop(500, function()
         if not cursor_state then return true end   -- nothing to watch; stop until the next open
         local pc_ok = false
         pcall(function() pc_ok = cursor_state.pc:IsValid() end)
@@ -598,8 +599,8 @@ local function start_input_watchdog()
             stop = ok and r == true
         end
         if stop then
-            -- hide_panel releases the pointer; ExecuteInGameThread keeps widget calls on the game thread
-            ExecuteInGameThread(function() APOverlay.hide_panel() end)
+            -- hide_panel releases the pointer (this loop already runs on the game thread)
+            GameThread.run(function() APOverlay.hide_panel() end)
             return true
         end
         return false
@@ -695,7 +696,7 @@ end
 function APOverlay._start_info_timer()
     info_gen = info_gen + 1
     local mine = info_gen
-    LoopAsync(2000, function()
+    GameThread.loop(2000, function()
         if mine ~= info_gen or not is_alive() then return true end
         if panel_shown then APOverlay.refresh_info() end
         return false
@@ -705,7 +706,7 @@ end
 local function start_timeout_watch()
     conn_gen = conn_gen + 1
     local mine = conn_gen
-    LoopAsync(1000, function()
+    GameThread.loop(1000, function()
         if mine ~= conn_gen or overlay.state ~= "connecting" then return true end
         if ConnStatus.timed_out(overlay.connecting_since, os.clock()) then
             local msg = ConnStatus.timeout_message(overlay.connect_server, ConnStatus.CONNECT_TIMEOUT)
@@ -1102,7 +1103,7 @@ end
 
 --- Timer that removes expired feed entries.
 function APOverlay._start_feed_timer()
-    LoopAsync(1000, function()
+    GameThread.loop(1000, function()
         if not is_alive() or not overlay.feed_vbox then
             return false  -- stop if overlay died
         end

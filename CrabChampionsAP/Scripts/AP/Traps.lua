@@ -461,17 +461,11 @@ end
 
 function M.install()
     if type(LoopAsync) ~= "function" then return end
-    local function run_tick()
+    local GameThread = require("AP/GameThread")
+    -- Game objects are touched on the game thread.
+    GameThread.loop(M.TICK_MS, function()
         local ok, err = pcall(M.tick)
         if not ok then log("tick error: " .. tostring(err)) end
-    end
-    LoopAsync(M.TICK_MS, function()
-        -- Game objects are touched on the game thread.
-        if type(ExecuteInGameThread) == "function" then
-            ExecuteInGameThread(run_tick)
-        else
-            run_tick()
-        end
         return false
     end)
     log("Trap watcher running")

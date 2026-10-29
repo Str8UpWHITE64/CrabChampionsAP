@@ -393,31 +393,21 @@ end
 
 function M.install()
     if type(LoopAsync) ~= "function" then return end
+    local GameThread = require("AP/GameThread")
     local function run_tick()
         local ok, err = pcall(M.tick)
         if not ok then log("tick error: " .. tostring(err)) end
     end
-    LoopAsync(TICK_MS, function()
-        -- Game objects are touched on the game thread.
-        if type(ExecuteInGameThread) == "function" then
-            ExecuteInGameThread(run_tick)
-        else
-            run_tick()
-        end
+    -- Game objects are touched on the game thread.
+    GameThread.loop(TICK_MS, function()
+        run_tick()
         return false
     end)
-    -- Island changes: check at once instead of waiting for the next tick.
+    -- Island changes: check soon instead of waiting for the next tick.
     for _, hook in ipairs({ "ClientOnClearedIsland", "ClientOnEnteredPortal" }) do
         pcall(function()
             RegisterHook("/Script/CrabChampions.CrabPC:" .. hook, function()
-                LoopAsync(300, function()
-                    if type(ExecuteInGameThread) == "function" then
-                        ExecuteInGameThread(run_tick)
-                    else
-                        run_tick()
-                    end
-                    return true
-                end)
+                GameThread.after(300, run_tick)
             end)
         end)
     end

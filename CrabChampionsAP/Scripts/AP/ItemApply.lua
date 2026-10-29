@@ -12,6 +12,7 @@
 -- be re-spawned when the player starts a new run from the lobby.
 
 local ItemData = require("AP/ItemData")
+local GameThread = require("AP/GameThread")
 
 local M = {}
 
@@ -300,7 +301,7 @@ local function spawn_and_collect(pickup_da, item_name, auto_collect, callback)
     if not auto_collect then
         log("Spawned (no auto-collect): " .. item_name .. " — player must pick up manually")
         -- Small delay to let spawn complete, then callback
-        LoopAsync(300, function()
+        GameThread.loop(300, function()
             if callback then callback(true) end
             return true
         end)
@@ -311,7 +312,7 @@ local function spawn_and_collect(pickup_da, item_name, auto_collect, callback)
     local attempts = 0
     local max_attempts = 20  -- 2 seconds at 100ms intervals
 
-    LoopAsync(100, function()
+    GameThread.loop(100, function()
         attempts = attempts + 1
 
         local new_pickup = find_new_pickup(before)
@@ -358,7 +359,7 @@ local function process_spawn_queue()
     spawn_and_collect(item.da, item.name, item.auto_collect, function(success)
         -- Wait before processing next item to avoid overwhelming the game
         if #spawn_queue > 0 then
-            LoopAsync(SPAWN_COOLDOWN_MS, function()
+            GameThread.loop(SPAWN_COOLDOWN_MS, function()
                 spawn_busy = false
                 process_spawn_queue()
                 return true
@@ -584,7 +585,7 @@ local function process_work_list(work, batch_size, delay_ms, gen, on_done)
 
         idx = batch_end + 1
         if idx <= #work then
-            LoopAsync(delay_ms, function()
+            GameThread.loop(delay_ms, function()
                 process_batch()
                 return true  -- run once
             end)
@@ -635,7 +636,7 @@ end
 schedule_flush = function()
     if flush_scheduled then return end
     flush_scheduled = true
-    LoopAsync(200, function()
+    GameThread.loop(200, function()
         flush()
         return true  -- run once
     end)
@@ -672,7 +673,7 @@ local function queue_crystals(amount)
     M._run_crystals = M._run_crystals + amount
     if not crystal_flush_scheduled then
         crystal_flush_scheduled = true
-        LoopAsync(200, function()
+        GameThread.loop(200, function()
             flush_crystals()
             return true  -- run once
         end)
@@ -750,7 +751,7 @@ end
 local function schedule_settled_draw()
     draw_generation = draw_generation + 1
     local generation = draw_generation
-    LoopAsync(DRAW_SETTLE_MS, function()
+    GameThread.loop(DRAW_SETTLE_MS, function()
         if generation == draw_generation and draw_pending then
             start_run_draw()
         end

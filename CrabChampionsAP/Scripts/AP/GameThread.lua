@@ -1,0 +1,242 @@
+-- GameThread: one scheduler that runs all of the mod's timed and deferred work on the game thread.
+--
+-- Why it is built this way (UE4SS 3.0.1):
+-- * LoopAsync callbacks run on a background thread, but on the SAME Lua state as the game-thread code (hooks and
+--   ExecuteInGameThread callbacks). Lua is not thread safe and UE4SS takes no lock around it.
+-- * Every ExecuteInGameThread call creates a Lua thread and two registry references on the calling thread, outside
+--   the lock that guards the queue, while the game thread is running queued callbacks and freeing their references.
+--   Called from LoopAsync, that corrupts the registry: a queued callback's reference ends up pointing at something
+--   that is not a function, UE4SS throws "[Lua::Registry::get_function_ref] Ref was not function" from inside the
+--   game's ProcessEvent, and the game crashes (0xe06d7363 in UE4SS.dll). Corrupted tables can also loop forever,
+--   which freezes the whole game.
+-- * Lua's garbage collector runs on whichever thread happens to allocate, so a collection step on the background
+--   thread walks objects the game thread is changing.
+-- * ExecuteInGameThread called while the queue is being run (from a queued callback, or from a hook that fires
+--   inside one) is either dropped or reads freed memory, because UE4SS clears the whole queue afterwards.
+-- * ExecuteInGameThread, RegisterHook and NotifyOnNewObject all create their Lua thread on the mod's main Lua
+--   stack and then anchor it with luaL_ref, which takes whatever is on top of that stack. RegisterHook does that
+--   under the queue lock, but ExecuteInGameThread does it before taking the lock. So an ExecuteInGameThread on the
+--   background thread while the mod is still registering its hooks can swap the anchors: a hook's Lua thread ends
+--   up anchored by the queued callback's reference, is freed after that callback runs, and the game crashes the
+--   next time the hook fires (access violation in UE4SS writing to a freed lua_State).
+--
+-- So the background thread does almost nothing: a single LoopAsync driver that queues nothing until the mod has
+-- finished loading (M.loaded, plus a grace period), and then only counts ticks and, at most once
+-- at a time, hands one function (the pump) to ExecuteInGameThread, and only one full tick after the previous pump
+-- finished, so its registry writes never overlap UE4SS cleaning up after the pump. The pump runs on the game
+-- thread and does everything else: queued jobs, timers, signals from other threads, and the garbage collector
+-- (stopped for automatic collection, stepped here, so it never runs on the background thread).
+--
+-- Rules for the rest of the mod:
+-- * Never call LoopAsync or ExecuteInGameThread directly. Use M.loop / M.after / M.run / M.wrap.
+-- * Register hooks (RegisterHook, NotifyOnNewObject, ...) only at load time or from game-thread work run by the
+--   pump (the driver never queues while a pump is pending or running). Call M.loaded() when loading is done.
+-- * Code that may run on another thread (RegisterKeyBind callbacks) must only call a trigger from M.signal.
+--
+-- Without ExecuteInGameThread (offline tests), everything runs inline or on LoopAsync as before.
+
+local M = {}
+
+local DRIVER_MS = 16            -- LoopAsync period of the driver
+local GRACE_TICKS = 125         -- about 2 s after M.loaded() before the first pump is queued
+local AUTO_ARM_TICKS = 1250     -- about 20 s: arm anyway if M.loaded() is never called
+local MAX_JOBS = 5000           -- per pump, so a job that keeps queueing itself can't hang the game
+local GC_STEP_KB = 256          -- collector work per pump (as if this many KB had been allocated)
+
+local function log(msg) print("[CrabAP-GameThread] " .. tostring(msg)) end
+
+local function available()
+    return type(ExecuteInGameThread) == "function" and type(LoopAsync) == "function"
+end
+
+local function now_ms() return os.clock() * 1000 end
+
+-- State used only on the game thread.
+local jobs, jobs_head, jobs_tail = {}, 1, 0
+local timers = {}               -- { due = ms, ms = period, fn = f, once = bool }
+local signals = {}              -- checkers, registered at load time
+local in_pump = false
+local gc_stopped = false
+M.stats = { pumps = 0, jobs = 0, errors = 0 }
+
+-- Shared with the driver (plain numbers and booleans in upvalues: no allocation, no table access there).
+local started = false
+local tick_n, done_at, pending = 0, -1, false
+local armed_at = AUTO_ARM_TICKS  -- the driver queues nothing before this tick
+
+local function run_job(fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok then
+        M.stats.errors = M.stats.errors + 1
+        log("error: " .. tostring(err))
+    end
+    return ok, err
+end
+
+local function push_job(fn)
+    jobs_tail = jobs_tail + 1
+    jobs[jobs_tail] = fn
+end
+
+local function drain_jobs()
+    local n = 0
+    while jobs_head <= jobs_tail and n < MAX_JOBS do
+        local fn = jobs[jobs_head]
+        jobs[jobs_head] = nil
+        jobs_head = jobs_head + 1
+        n = n + 1
+        run_job(fn)
+    end
+    if jobs_head > jobs_tail then jobs, jobs_head, jobs_tail = {}, 1, 0 end
+    M.stats.jobs = M.stats.jobs + n
+end
+
+local function run_timers()
+    local t = now_ms()
+    local count = #timers
+    local keep = {}
+    for i = 1, count do
+        local tm = timers[i]
+        if tm.dead then
+            -- dropped
+        elseif tm.due <= t then
+            local ok, stop = run_job(tm.fn)
+            if not ok then
+                log("timer stopped on error")
+            elseif tm.once or stop == true then
+                -- finished
+            else
+                -- keep the average period: the next call is due one period after this one was due
+                local nxt = tm.due + tm.ms
+                tm.due = (nxt > t) and nxt or (t + 1)
+                keep[#keep + 1] = tm
+            end
+        else
+            keep[#keep + 1] = tm
+        end
+    end
+    for i = count + 1, #timers do keep[#keep + 1] = timers[i] end   -- added while running
+    timers = keep
+end
+
+local function gc_step()
+    if not gc_stopped or collectgarbage("isrunning") then
+        collectgarbage("stop")
+        gc_stopped = true
+    end
+    collectgarbage("step", GC_STEP_KB)
+end
+
+-- The pump: runs on the game thread as an ExecuteInGameThread callback.
+local function pump()
+    if in_pump then return end
+    in_pump = true
+    M.stats.pumps = M.stats.pumps + 1
+    for i = 1, #signals do signals[i]() end
+    drain_jobs()
+    run_timers()
+    drain_jobs()
+    run_job(gc_step)
+    in_pump = false
+    done_at = tick_n
+    pending = false
+end
+M._pump = pump
+
+local function start()
+    if started then return end
+    started = true
+    local execute = ExecuteInGameThread
+    LoopAsync(DRIVER_MS, function()
+        tick_n = tick_n + 1
+        if tick_n < armed_at then return false end   -- still loading: hooks are being registered
+        if pending then return false end              -- one pump at a time; it waits for the next ProcessEvent
+        if tick_n <= done_at + 1 then
+            return false               -- leave one full tick after the last pump before queueing the next
+        end
+        pending = true
+        execute(pump)
+        return false
+    end)
+end
+
+--- Driver numbers for diagnostics (read on the game thread).
+function M.state()
+    return { ticks = tick_n, done_at = done_at, pending = pending, armed_at = armed_at, timers = #timers,
+             jobs = jobs_tail - jobs_head + 1, pumps = M.stats.pumps, errors = M.stats.errors }
+end
+
+--- Run fn on the game thread: in the current pump if one is running, else in the next one.
+--- Call it from game-thread code only (hooks, timers, jobs, AP callbacks).
+function M.run(fn)
+    if not available() then return fn() end
+    start()
+    push_job(fn)
+end
+
+--- Wrap a callback so every call runs on the game thread, in call order. Return values are dropped.
+function M.wrap(fn)
+    return function(...)
+        local args = table.pack(...)
+        M.run(function() return fn(table.unpack(args, 1, args.n)) end)
+    end
+end
+
+--- Call fn on the game thread every ms (first call after ms). Return true from fn to stop; an error also stops it.
+--- Returns a handle with :cancel().
+function M.loop(ms, fn)
+    if not available() then
+        local h = { dead = false }
+        LoopAsync(ms, function()
+            if h.dead then return true end
+            return fn()
+        end)
+        function h:cancel() self.dead = true end
+        return h
+    end
+    start()
+    local tm = { due = now_ms() + math.max(ms, 0), ms = math.max(ms, 0), fn = fn, once = false }
+    function tm:cancel() self.dead = true end
+    timers[#timers + 1] = tm
+    return tm
+end
+
+--- Run fn once on the game thread after ms.
+function M.after(ms, fn)
+    if not available() then
+        return M.loop(ms, function() fn(); return true end)
+    end
+    local tm = M.loop(ms, fn)
+    tm.once = true
+    return tm
+end
+
+--- For code that runs on another thread (RegisterKeyBind callbacks): returns a trigger that only sets a flag;
+--- the next pump sees it and runs fn on the game thread. Register at load time, not from another thread.
+function M.signal(fn)
+    if not available() then return fn end
+    start()
+    local hit = false
+    signals[#signals + 1] = function()
+        if hit then
+            hit = false
+            run_job(fn)
+        end
+    end
+    return function() hit = true end
+end
+
+--- Start the driver now (otherwise it starts with the first timer or job). It queues nothing before M.loaded().
+function M.start()
+    if available() then start() end
+end
+
+--- The mod has finished registering its hooks: the first pump may be queued after a short grace period.
+--- Calling it again (a later loader) pushes the first pump back again.
+function M.loaded()
+    if not available() then return end
+    start()
+    armed_at = tick_n + GRACE_TICKS
+end
+
+return M
