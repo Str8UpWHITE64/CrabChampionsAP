@@ -1,5 +1,6 @@
 from typing import Dict, Set, List
 
+from Options import OptionError
 from BaseClasses import MultiWorld, Region, Item, Entrance, Tutorial, ItemClassification, LocationProgressType
 
 from worlds.AutoWorld import World, WebWorld
@@ -633,6 +634,13 @@ class CrabChampsWorld(World):
         # EXCLUDED locations can only receive filler items (not useful/progression).
         # Downgrade enough useful items to filler to cover excluded locations.
         excluded_needed = self._count_excluded_locations()
+        # Locations the player excluded in their yaml need filler too. A name that
+        # is also excluded by the world is counted twice, which only downgrades a
+        # few more useful items than strictly needed.
+        created = {loc.name for loc in self.multiworld.get_locations(self.player)
+                   if loc.category != CrabChampsLocationCategory.EVENT}
+        user_excluded = len(created & set(self.options.exclude_locations.value))
+        excluded_needed += user_excluded
         if excluded_needed > 0:
             filler_count = sum(
                 1 for it in itempool
@@ -646,6 +654,11 @@ class CrabChampsWorld(World):
                     if it.classification == ItemClassification.useful:
                         it.classification = ItemClassification.filler
                         to_downgrade -= 1
+            if to_downgrade > 0 and user_excluded:
+                raise OptionError(
+                    f"Crab Champions: {self.multiworld.player_name[self.player]} excludes more locations "
+                    f"than the item pool has filler for ({to_downgrade} too many). "
+                    "Exclude fewer locations, or turn on more filler (crystal_cache_percentage).")
 
         self.multiworld.itempool += itempool
 

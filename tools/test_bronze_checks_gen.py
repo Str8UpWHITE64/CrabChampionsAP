@@ -85,4 +85,41 @@ def run(ap_dir):
                                cwd=ap_dir, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
             if r.returncode != 0 or not list(out.glob("*.zip")):
                 problems.append(f"generation failed for {opts}:\n{(r.stdout + r.stderr)[-800:]}")
+
+    # Heavy exclude_locations (islands 1-12 and every pickup, as a player might): generation must still fit
+    # the excluded locations with filler; excluding nearly everything must fail with a clear message.
+    import re
+    from worlds.crabchampions.Locations import location_dictionary
+    names = [n for n, d in location_dictionary.items() if d.category.name != "EVENT"]
+    early = [n for n in names if n.startswith(("Perk: ", "Relic: ", "Weapon Mod: ", "Melee Mod: ", "Ability Mod: "))
+             or (re.search(r"Island (\d+)", n) and int(re.search(r"Island (\d+)", n).group(1)) <= 12)
+             or re.match(r"(Complete|Reach) (Tropical|Arctic|Desert|Volcanic) (Island|Shop)", n)]
+    cases = [
+        (dict(check_layout="island_number", crystal_cache_percentage=100), early, True),
+        (dict(check_layout="island_number", biome_lock=True, starting_biome="arctic", crystal_cache_percentage=100,
+              granted_item_checks=False, biome_item_percentage=0), early, True),
+        (dict(check_layout="biome", crystal_cache_percentage=100),
+         [n for n in early if not n.startswith(("Complete Arctic", "Reach Arctic", "Complete Desert", "Reach Desert",
+                                                "Complete Volcanic", "Reach Volcanic"))], True),
+        (dict(check_layout="island_number"), names, False),
+    ]
+    for opts, excl, should_work in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            players = Path(tmp) / "players"
+            players.mkdir()
+            out = Path(tmp) / "out"
+            out.mkdir()
+            lines = ["name: Crab", "game: Crab Champions", "Crab Champions:"]
+            lines += [f"  {k}: {str(v).lower() if isinstance(v, bool) else v}" for k, v in opts.items()]
+            lines += ["  exclude_locations:"] + [f'  - "{n}"' for n in excl]
+            (players / "Crab.yaml").write_text(chr(10).join(lines) + chr(10), encoding="utf-8")
+            r = subprocess.run([sys.executable, "Generate.py", "--player_files_path", str(players),
+                                "--outputpath", str(out), "--seed", "99"],
+                               cwd=ap_dir, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
+            ok = r.returncode == 0 and bool(list(out.glob("*.zip")))
+            text = r.stdout + r.stderr
+            if should_work and not ok:
+                problems.append(f"heavy exclusion failed for {opts}: {text[-600:]}")
+            if not should_work and (ok or "FillError" in text or "excludes more locations" not in text):
+                problems.append(f"over-exclusion should fail with a clear message for {opts}: {text[-600:]}")
     return problems
