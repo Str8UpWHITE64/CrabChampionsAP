@@ -19,7 +19,7 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 ## Requirements
 
 - [Crab Champions](https://store.steampowered.com/app/774801/Crab_Champions/)
-- [Archipelago](https://archipelago.gg/) v0.6.4+
+- [Archipelago](https://archipelago.gg/) v0.6.6+
 
 ## Installation
 

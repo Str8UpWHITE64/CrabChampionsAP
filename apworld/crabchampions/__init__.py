@@ -3,7 +3,6 @@ from typing import Dict, Set, List
 from BaseClasses import MultiWorld, Region, Item, Entrance, Tutorial, ItemClassification, LocationProgressType
 
 from worlds.AutoWorld import World, WebWorld
-from worlds.generic.Rules import set_rule, add_rule
 
 from .Items import (
     CrabChampsItem, CrabChampsItemCategory, item_dictionary, key_item_names,
@@ -20,6 +19,7 @@ from .Locations import (
     biome_index_to_biome,
 )
 from .Options import CrabChampsOption
+from .rules import EQUIPMENT_CATEGORIES, set_all_rules
 
 
 class CrabChampsWeb(WebWorld):
@@ -699,91 +699,26 @@ class CrabChampsWorld(World):
     def get_filler_item_name(self) -> str:
         return "Crystal Cache"
 
-    def has_biome_access(self, state, biome: int) -> bool:
-        """Whether the player can enter a biome (game number 1-4).
-
-        Island-number checks do not need it: island numbers keep counting when
-        a biome repeats, so they are all reachable with the starting biome
-        alone.  Biome-layout checks use it as their rule.
-        """
-        if not self.options.biome_lock.value:
-            return True
-        return state.has(biome_access_item_names[biome - 1], self.player)
-
     def set_rules(self) -> None:
         required_rank = self.options.required_rank.value
         max_rank = self.options.max_rank.value
-        weapons_needed = self.options.weapons_for_completion.value
-        melee_needed = self.options.melee_for_completion.value
-        abilities_needed = self.options.ability_for_completion.value
         extra_rank_mode = self.options.extra_rank_checks.value
         extra_ranked = extra_rank_mode != 0
         non_prog_above = extra_rank_mode == 2
         equip_mode = self.options.equipment_check_mode.value  # 0=regular, 1=filler_only, 2=disabled
 
-        _equip_categories = {
-            CrabChampsLocationCategory.WEAPON_RUN,
-            CrabChampsLocationCategory.MELEE_RUN,
-            CrabChampsLocationCategory.ABILITY_RUN,
-            CrabChampsLocationCategory.RANKED_WEAPON_RUN,
-            CrabChampsLocationCategory.RANKED_MELEE_RUN,
-            CrabChampsLocationCategory.RANKED_ABILITY_RUN,
-            CrabChampsLocationCategory.RUN_WEAPON,
-            CrabChampsLocationCategory.RUN_MELEE,
-            CrabChampsLocationCategory.RUN_ABILITY,
-        }
-        pickup_cats = (
-            CrabChampsLocationCategory.PERK,
-            CrabChampsLocationCategory.RELIC,
-            CrabChampsLocationCategory.WEAPON_MOD,
-            CrabChampsLocationCategory.MELEE_MOD,
-            CrabChampsLocationCategory.ABILITY_MOD,
-        )
+        _equip_categories = EQUIPMENT_CATEGORIES
 
-        # --- Single pass over all locations ---
-        # Island completion locations have no AP-item prerequisites (the player
-        # can always reach any island through normal gameplay), so no access
-        # rules are needed for them.  Equipment-island locations only require
-        # the player to have the weapon/melee/ability if it is in the AP pool.
         for location in self.multiworld.get_locations(self.player):
             if not hasattr(location, 'category'):
                 continue
             cat = BIOME_BASE_CATEGORY.get(location.category, location.category)
 
-            # A biome check needs that biome's Access item. The starting biome's
-            # is precollected, so its checks are open from the start.
-            if location.category in BIOME_BASE_CATEGORY and self.options.biome_lock.value:
-                biome = biome_index_to_biome(biome_index_from_name(location.name))
-                set_rule(location, lambda state, b=biome: self.has_biome_access(state, b))
-
-            # Equipment run: pool items need state.has() rule
+            # Non-pool equipment runs are filler-only in filler_only mode.
             if cat in _equip_categories:
                 equip_name = self._extract_equip_name(location.name)
-                is_pool = self._is_pool_equipment(equip_name, cat)
-                if is_pool:
-                    add_rule(location, lambda state, en=equip_name: state.has(en, self.player))
-                elif equip_mode == 1:  # filler_only for non-pool
+                if not self._is_pool_equipment(equip_name, cat) and equip_mode == 1:
                     location.progress_type = LocationProgressType.EXCLUDED
-
-            # Pickup tag prerequisites
-            elif cat in pickup_cats:
-                item_name = location.name.split(": ", 1)[-1] if ": " in location.name else ""
-                providers = PICKUP_TAG_REQUIREMENTS.get(item_name)
-                if providers:
-                    # When limit_pickup_pool is on, only providers actually
-                    # in the chosen subset can satisfy state.has() — others
-                    # are never sent as AP items.  Filter the rule's
-                    # provider list to the in-pool ones.
-                    if self.options.limit_pickup_pool.value:
-                        providers = [p for p in providers
-                                     if p in self._allowed_pickup_names]
-                    if providers:
-                        set_rule(
-                            location,
-                            lambda state, p=providers: any(
-                                state.has(item, self.player) for item in p
-                            )
-                        )
 
             # Non-progression above required rank
             if non_prog_above and extra_ranked:
@@ -800,37 +735,7 @@ class CrabChampsWorld(World):
                 except KeyError:
                     pass
 
-        # --- Victory rule ---
-        # ONLY pool equipment counts toward completion.  Non-pool equipment is
-        # available from the start, so counting it would make the goal
-        # satisfiable without receiving a single AP item (e.g. 5 weapons for
-        # completion with 15 non-pool weapons was reachable from an empty
-        # state).  Non-pool equipment runs remain ordinary bonus locations —
-        # see equipment_check_mode — they just never advance the goal.
-        # generate_early guarantees *_for_completion <= *_in_pool, so the pool
-        # alone can always satisfy this rule.  Island reachability requires no
-        # AP items (the player progresses through islands via normal gameplay).
-
-        # Snapshot pool lists for the closure
-        pw = list(self.pool_weapons)
-        pm = list(self.pool_melee)
-        pa = list(self.pool_abilities)
-
-        def victory_rule(state, wn=weapons_needed, mn=melee_needed, an=abilities_needed,
-                         _pw=pw, _pm=pm, _pa=pa):
-            if sum(1 for w in _pw if state.has(w, self.player)) < wn:
-                return False
-            if mn > 0 and sum(1 for m in _pm if state.has(m, self.player)) < mn:
-                return False
-            if an > 0 and sum(1 for a in _pa if state.has(a, self.player)) < an:
-                return False
-            return True
-
-        set_rule(self.multiworld.get_location("Victory", self.player), victory_rule)
-
-        self.multiworld.completion_condition[self.player] = lambda state: (
-            state.can_reach_location("Victory", self.player)
-        )
+        set_all_rules(self)
 
     def fill_slot_data(self) -> Dict[str, object]:
         # NOTE: We intentionally do NOT include `locationsId`/`itemsId` arrays
