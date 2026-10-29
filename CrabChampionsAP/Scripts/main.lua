@@ -22,8 +22,9 @@ local Achievements = require("AP/Achievements")
 local ModifierUnlock = require("AP/ModifierUnlock")
 local BiomeLock = require("AP/BiomeLock")
 local GameThread = require("AP/GameThread")
--- The driver starts here, outside any coroutine (LoopAsync is a UE4SS function), but queues nothing until
--- GameThread.loaded() at the end of this file: hooks registered while it queues work can lose their Lua thread.
+-- The scheduler starts here, outside any coroutine (LoopAsync is a UE4SS function): the dll's per-frame callback
+-- when available, else the LoopAsync driver. Neither runs work before GameThread.loaded() at the end of this file:
+-- hooks registered while work is queued can lose their Lua thread.
 GameThread.start()
 
 local APOverlay = nil

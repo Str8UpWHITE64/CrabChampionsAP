@@ -27,6 +27,13 @@
 -- thread and does everything else: queued jobs, timers, signals from other threads, and the garbage collector
 -- (stopped for automatic collection, stepped here, so it never runs on the background thread).
 --
+-- Frame mode (preferred). When the CrabInvMngmt dll offers AP_SetFrameCallback and it accepts the callback, the
+-- dll calls the pump once per frame at the start of the engine's frame (UGameEngine::Tick), on the game thread,
+-- outside any ProcessEvent and under UE4SS's own Lua lock. Then there is no driver at all: no LoopAsync, no
+-- ExecuteInGameThread, and no Lua on the background thread. The same load rule applies: the first call comes
+-- 2 s after M.loaded() (20 s after the first use if M.loaded() never comes). The collector step keeps its old rate
+-- (about 30 per second, from the frame times). If the dll is missing or refuses, the driver below is used.
+--
 -- Rules for the rest of the mod:
 -- * Never call LoopAsync or ExecuteInGameThread directly. Use M.loop / M.after / M.run / M.wrap.
 -- * Register hooks (RegisterHook, NotifyOnNewObject, ...) only at load time or from game-thread work run by the
@@ -42,6 +49,9 @@ local GRACE_TICKS = 125         -- about 2 s after M.loaded() before the first p
 local AUTO_ARM_TICKS = 1250     -- about 20 s: arm anyway if M.loaded() is never called
 local MAX_JOBS = 5000           -- per pump, so a job that keeps queueing itself can't hang the game
 local GC_STEP_KB = 256          -- collector work per pump (as if this many KB had been allocated)
+local FRAME_GRACE_MS = 2000     -- frame mode: first call this long after M.loaded()
+local FRAME_AUTO_ARM_MS = 20000 -- frame mode: first call this long after the first use if M.loaded() never comes
+local FRAME_GC_S = 0.032        -- frame mode: at most one collector step per this much game time
 
 local function log(msg) print("[CrabAP-GameThread] " .. tostring(msg)) end
 
@@ -57,7 +67,11 @@ local timers = {}               -- { due = ms, ms = period, fn = f, once = bool 
 local signals = {}              -- checkers, registered at load time
 local in_pump = false
 local gc_stopped = false
-M.stats = { pumps = 0, jobs = 0, errors = 0 }
+M.stats = { pumps = 0, jobs = 0, errors = 0, frames = 0, frame_gaps = 0 }
+
+local mode = nil                -- "frame" (dll frame callback) or "pump" (driver + ExecuteInGameThread)
+local last_frame = nil
+local gc_wait = 0
 
 -- Shared with the driver (plain numbers and booleans in upvalues: no allocation, no table access there).
 local started = false
@@ -143,11 +157,56 @@ local function pump()
 end
 M._pump = pump
 
+-- Frame mode: called by the dll once per engine frame, on the game thread, at the start of the frame.
+local function on_frame(frame_no, dt)
+    if in_pump then return end
+    in_pump = true
+    M.stats.pumps = M.stats.pumps + 1
+    M.stats.frames = M.stats.frames + 1
+    if last_frame and frame_no ~= last_frame + 1 then M.stats.frame_gaps = M.stats.frame_gaps + 1 end
+    last_frame = frame_no
+    for i = 1, #signals do signals[i]() end
+    drain_jobs()
+    run_timers()
+    drain_jobs()
+    gc_wait = gc_wait + (tonumber(dt) or 0)
+    if gc_wait >= FRAME_GC_S then
+        gc_wait = 0
+        run_job(gc_step)
+    end
+    in_pump = false
+end
+M._on_frame = on_frame
+
+local start_driver
+
+-- Hand on_frame to the dll. False (and the reason) when the dll can't run it.
+local function set_frame_callback(delay_ms)
+    if type(AP_SetFrameCallback) ~= "function" then return false, "no AP_SetFrameCallback in the dll" end
+    local ok, res, why = pcall(AP_SetFrameCallback, on_frame, delay_ms)
+    if not ok then return false, tostring(res) end
+    if res ~= true then return false, tostring(why or "refused") end
+    return true
+end
+
 local function start()
     if started then return end
     started = true
+    local ok, why = set_frame_callback(FRAME_AUTO_ARM_MS)
+    if ok then
+        mode = "frame"
+        log("frame callback active")
+        return
+    end
+    log("frame callback unavailable: " .. tostring(why) .. "; using ExecuteInGameThread")
+    start_driver()
+end
+
+start_driver = function()
+    mode = "pump"
     local execute = ExecuteInGameThread
     LoopAsync(DRIVER_MS, function()
+        if mode ~= "pump" then return true end     -- the dll's frame callback took over
         tick_n = tick_n + 1
         if tick_n < armed_at then return false end   -- still loading: hooks are being registered
         if pending then return false end              -- one pump at a time; it waits for the next ProcessEvent
@@ -162,8 +221,9 @@ end
 
 --- Driver numbers for diagnostics (read on the game thread).
 function M.state()
-    return { ticks = tick_n, done_at = done_at, pending = pending, armed_at = armed_at, timers = #timers,
-             jobs = jobs_tail - jobs_head + 1, pumps = M.stats.pumps, errors = M.stats.errors }
+    return { mode = mode, ticks = tick_n, done_at = done_at, pending = pending, armed_at = armed_at, timers = #timers,
+             jobs = jobs_tail - jobs_head + 1, pumps = M.stats.pumps, errors = M.stats.errors,
+             frames = M.stats.frames, frame_gaps = M.stats.frame_gaps, last_frame = last_frame }
 end
 
 --- Run fn on the game thread: in the current pump if one is running, else in the next one.
@@ -236,7 +296,26 @@ end
 function M.loaded()
     if not available() then return end
     start()
+    -- Also retried here when it failed at the first use (too early in start-up for the dll to find the engine).
+    if mode == "frame" or type(AP_SetFrameCallback) == "function" then
+        local was = mode
+        local ok, why = set_frame_callback(FRAME_GRACE_MS)
+        if ok then
+            if was ~= "frame" then log("frame callback active") end
+            mode = "frame"               -- a running driver stops at its next tick
+            return
+        end
+        if was == "frame" then
+            log("frame callback unavailable: " .. tostring(why) .. "; using ExecuteInGameThread")
+            start_driver()
+        end
+    end
     armed_at = tick_n + GRACE_TICKS
+end
+
+--- "frame" when the dll calls the pump once per frame, "pump" for the ExecuteInGameThread driver, nil before start.
+function M.mode()
+    return mode
 end
 
 return M
