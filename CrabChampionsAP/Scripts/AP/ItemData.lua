@@ -48,7 +48,7 @@ local function add(cc_code, cat, name)
     M.BY_CC_CODE[cc_code] = { cat = cat, name = name }
 end
 
--- Perks (cc_code 1-107)
+-- Perks (cc_code 1-116)
 local perk_names = {
     "Anti Crit", "Banana", "Bounty Hunter", "Bulletproof", "Bullseye",
     "Critical Arrow", "Critical Thinking", "Crystal Combo", "Crystal Fertilizer", "Damage Combo",
@@ -59,7 +59,7 @@ local perk_names = {
     "Poisonous Armor", "Potent Magic", "Power Armor", "Power Punch", "Regenerator",
     "Scavenger", "Sharpshooter", "Slugger", "Snatcher", "Special Delivery",
     "Speed Demon", "Stamina", "Streamer Loot", "Tony's Black Card", "Toxic",
-    "Valued Customer", "Vitality", "All You Can Eat", "Amber Resin", "Assassin",
+    "Valued Customer", "Vitality", "Amber Resin", "Assassin",
     "Big Chests", "Bonus Crystals", "Checklist", "Collector", "Crimson Haze",
     "Critical Blast", "Damage Aura", "Double Vision", "Exploding Enemies", "Fire Aura",
     "Flammable Armor", "Gemstone", "Gold Coating", "Grim Reaper", "Health Is Power",
@@ -72,10 +72,14 @@ local perk_names = {
     "Crystal Asteroids", "Dagger Dash", "Electric Enemies", "Faulty Chests", "Flammable Enemies",
     "Freezing Enemies", "Ice Dash", "Level Up", "Lightning Dash", "Poisonous Enemies",
     "Powerslide", "Rare Treasure",
+    -- Added in the 2.0 update
+    "Charger", "Giant Slayer", "Liquid Core", "Weightlifter",
+    "Fireslide", "Golden Hammer", "Heavy Impact", "Minimalist", "Quality Shipments",
+    "Tempered",
 }
 for i, name in ipairs(perk_names) do add(i, M.CATEGORY.PERK, name) end
 
--- Relics (cc_code 200-252)
+-- Relics (cc_code 200-269)
 local relic_names = {
     "Adrenaline Amulet", "Blacksmith Amulet", "Combo Ring", "Coral Amulet", "Icebreaker",
     "Portal Ring", "Ring Of Armor", "Ring Of Destruction", "Ring Of Healing", "Ring Of Healthy Turrets",
@@ -88,32 +92,43 @@ local relic_names = {
     "Overspill Goblet", "Ring Of Favoritism", "Ring Of Tankiness", "Trigger Ring", "Upgrade Ring",
     "Ability Ring", "Portal Amulet", "Ring Of Gravity", "Ring Of Luck", "Ring Of Protection",
     "Ring Of Regenerating Armor", "Ring Of Swiftness", "Twin Ring",
+    -- Added in the 2.0 update
+    "AOE Ring", "Barter Ring", "Blessed Ring", "Corrupt Stocktaker",
+    "Lingering Fumes", "Overcharge Ring", "Sweet Spot",
+    "All You Can Eat", "Ammo Cache", "Crushing Blow", "Lucky Lock", "Mega Greed",
+    "Nourishing Salvage", "Ring Of Confidence", "Ring Of Deceit", "Sand Shield", "Thrusters",
 }
 for i, name in ipairs(relic_names) do add(199 + i, M.CATEGORY.RELIC, name) end
 
--- Weapons (cc_code 300-319)
+-- Weapons (cc_code 300-320)
 local weapon_names = {
     "Arcane Wand", "Auto Rifle", "Auto Shotgun", "Blade Launcher", "Burst Pistol",
     "Cluster Launcher", "Crossbow", "Dual Pistols", "Dual Shotguns", "Flamethrower",
     "Ice Staff", "Laser Cannons", "Lightning Scepter", "Marksman Rifle", "Minigun",
     "Orb Launcher", "Poison Cannon", "Rocket Launcher", "Seagle", "Sniper",
+    -- Added in the 2.0 update
+    "Popcorn Shotgun",
 }
 for i, name in ipairs(weapon_names) do add(299 + i, M.CATEGORY.WEAPON, name) end
 
--- Abilities (cc_code 400-406)
+-- Abilities (cc_code 400-408)
 local ability_names = {
     "Air Strike", "Black Hole", "Electro Globe", "Grappling Hook",
     "Grenade", "Ice Blast", "Laser Beam",
+    -- Added in the 2.0 update
+    "Boomerang", "Tornado",
 }
 for i, name in ipairs(ability_names) do add(399 + i, M.CATEGORY.ABILITY, name) end
 
--- Melee (cc_code 500-504)
+-- Melee (cc_code 500-505)
 local melee_names = {
     "Claw", "Dagger", "Hammer", "Katana", "Pickaxe",
+    -- Added in the 2.0 update
+    "Baseball Bat",
 }
 for i, name in ipairs(melee_names) do add(499 + i, M.CATEGORY.MELEE, name) end
 
--- Weapon Mods (cc_code 600-689)
+-- Weapon Mods (cc_code 600-692)
 local weapon_mod_names = {
     "Accelerating Shot", "Arc Shot", "Arcane Blast", "Arcane Shot", "Aura Shot",
     "Beam Shot", "Big Mag", "Big Shot", "Blind Fire", "Bomb Shot",
@@ -133,20 +148,24 @@ local weapon_mod_names = {
     "Steady Shot", "Streak Shot", "Supercharged", "Targeting Shot", "Thorn Shot",
     "Time Bolt", "Time Shot", "Torpedo Shot", "Triangle Shot", "Trick Shot",
     "Triple Shot", "Ultra Shot", "Wind Up", "X Shot", "Zig Zag Shot",
+    -- Added in the 2.0 update
+    "Full Focus", "Popcorn Shot", "Tornado Shot",
 }
 for i, name in ipairs(weapon_mod_names) do add(599 + i, M.CATEGORY.WEAPON_MOD, name) end
 
--- Melee Mods (cc_code 700-711)
+-- Melee Mods (cc_code 700-716)
 local melee_mod_names = {
     "Arcane Claws", "Big Claws", "Blender", "Brawler", "Fire Claws",
     "Ice Claws", "Iron Claws", "Lightning Claws", "Poison Claws", "Sharp Claws",
     "Time Claws", "Vampire",
+    -- Added in the 2.0 update
+    "Crystal Claws", "Hard Landing", "Knockback Claws", "Potent Claws", "Prismatic Claws",
 }
 for i, name in ipairs(melee_mod_names) do add(699 + i, M.CATEGORY.MELEE_MOD, name) end
 
--- Ability Mods (cc_code 800-842)
+-- Ability Mods (cc_code 800-844)
 local ability_mod_names = {
-    "Aura Explosion", "Barrel Explosion", "Beam Turret", "Big Ability", "Bigger Boom",
+    "Barrel Explosion", "Beam Turret", "Big Ability", "Bigger Boom",
     "Bomb Explosion", "Bouncing Explosion", "Bubble Blast", "Chaotic Explosion", "Clone Explosion",
     "Crystal Barrage", "Crystal Strike", "Dagger Blast", "Damage Explosion", "Energy Ring",
     "Fire Explosion", "Firework Explosion", "Giant Drill", "Glue Explosion", "Grenadier",
@@ -155,6 +174,8 @@ local ability_mod_names = {
     "Sentry Turret", "Sniper Turret", "Spark Explosion", "Spike Strike", "Spinning Blade",
     "Split Ability", "Spore Explosion", "Targeting Explosion", "Thorn Explosion", "Time Explosion",
     "Triple Ability", "Ultra Mushroom", "Wave Turret",
+    -- Added in the 2.0 update
+    "Fast Ability", "Homing Ability", "Orbiting Ability",
 }
 for i, name in ipairs(ability_mod_names) do add(799 + i, M.CATEGORY.ABILITY_MOD, name) end
 

@@ -4,6 +4,10 @@
 -- the unlock is on, every live modifier button (CrabDifficultyModifierUI) that still shows that overlay gets the
 -- overlay collapsed and the button enabled. Only widgets are changed: CrabPS.AccountRank and AccountLevel are never
 -- written, so nothing rank related reaches the game's saves or the achievement checks.
+--
+-- In the current game build every modifier button is already unlocked at any account rank (none shows a
+-- Locked overlay), so the sweep finds nothing to change. It stays so that a build which locks buttons again is
+-- handled without a client change.
 
 local M = {}
 

@@ -57,10 +57,10 @@ class WeaponsForCompletion(Range):
     Mode), but they never advance the goal.  Weapons in Pool is raised to
     match this value when it is lower.
 
-    Capped at the total number of weapons in the game (20)."""
+    Capped at the total number of weapons in the game (21)."""
     display_name = "Weapons for Completion"
     range_start = 1
-    range_end = 20
+    range_end = 21
     default = 5
 
 
@@ -73,7 +73,7 @@ class MeleeForCompletion(Range):
     melee location checks, and no melee requirement for victory."""
     display_name = "Melee for Completion"
     range_start = 0
-    range_end = 5
+    range_end = 6
     default = 3
 
 
@@ -86,7 +86,7 @@ class AbilityForCompletion(Range):
     no ability location checks, and no ability requirement for victory."""
     display_name = "Abilities for Completion"
     range_start = 0
-    range_end = 7
+    range_end = 9
     default = 3
 
 
@@ -95,7 +95,7 @@ class AbilityForCompletion(Range):
 # ──────────────────────────────────────────────────────────────────────────
 
 class WeaponsInPool(Range):
-    """How many weapons are randomly selected from the 20 available to be
+    """How many weapons are randomly selected from the 21 available to be
     AP items.  Pool weapons must be received via Archipelago before you can
     use them.  Non-pool weapons are always available from the start.
 
@@ -105,40 +105,40 @@ class WeaponsInPool(Range):
     Example: pool=5, for_completion=3 means 5 weapons are AP items, all 5
     have location checks, but only 3 distinct ones must be used to win.
 
-    Must be >= Weapons for Completion (auto-clamped).  Set to 20 to put
+    Must be >= Weapons for Completion (auto-clamped).  Set to 21 to put
     every weapon in the pool - Starting Weapons is then forced to at least
     1 so you always begin with something usable."""
     display_name = "Weapons in Pool"
     range_start = 1
-    range_end = 20
+    range_end = 21
     default = 5
 
 
 class MeleeInPool(Range):
-    """How many melee weapons (out of 5) are randomly selected to be AP
+    """How many melee weapons (out of 6) are randomly selected to be AP
     items.  See Weapons in Pool for the full mechanic.
 
     Must be >= Melee for Completion (auto-clamped).  Forced to 0 when
-    Melee for Completion is 0.  Set to 5 to put every melee weapon in the
+    Melee for Completion is 0.  Set to 6 to put every melee weapon in the
     pool - one random pool melee is then added to your starting inventory
     so you always begin with something usable."""
     display_name = "Melee in Pool"
     range_start = 0
-    range_end = 5
+    range_end = 6
     default = 0
 
 
 class AbilitiesInPool(Range):
-    """How many abilities (out of 7) are randomly selected to be AP items.
+    """How many abilities (out of 9) are randomly selected to be AP items.
     See Weapons in Pool for the full mechanic.
 
     Must be >= Abilities for Completion (auto-clamped).  Forced to 0 when
-    Abilities for Completion is 0.  Set to 7 to put every ability in the
+    Abilities for Completion is 0.  Set to 9 to put every ability in the
     pool - one random pool ability is then added to your starting
     inventory so you always begin with something usable."""
     display_name = "Abilities in Pool"
     range_start = 0
-    range_end = 7
+    range_end = 9
     default = 0
 
 
@@ -154,11 +154,11 @@ class StartingWeapons(Range):
 
     Must be < Weapons in Pool (at least one weapon must still be findable
     via AP).  Set to 0 to start with no pool weapons unlocked - except
-    when Weapons in Pool is 20, where this is forced to at least 1 because
+    when Weapons in Pool is 21, where this is forced to at least 1 because
     no weapon would otherwise be available at the start."""
     display_name = "Starting Weapons"
     range_start = 0
-    range_end = 19
+    range_end = 20
     default = 0
 
 
@@ -279,7 +279,7 @@ class PickupChecks(DefaultOnToggle):
     or ability mods for the FIRST TIME (per item, per multiworld) sends
     a location check, e.g. "Perk: Driller" or "Relic: Time Ring".
 
-    Adds up to 305 location checks.  When disabled, these pickup
+    Adds up to 339 location checks.  When disabled, these pickup
     locations don't exist and the item pool focuses on island/equipment/
     rank-run checks only.
 

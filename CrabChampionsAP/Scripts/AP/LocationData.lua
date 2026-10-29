@@ -21,7 +21,7 @@ M.BASE_ID = 1890000
 M.TABLE_OFFSET = 12000
 -- Must match ID_LAYOUT in Locations.py. APClient refuses seeds from any
 -- other layout, since their item and location IDs mean different things.
-M.ID_LAYOUT = 3
+M.ID_LAYOUT = 4
 
 M.REGION = {
     island      = 0,
@@ -89,7 +89,7 @@ M.GREED_BY_KIND = {
     relic = {
         "High Roller", "Hoarder Backpack", "Overspill Goblet",
         "Ring Of Favoritism", "Ring Of Tankiness", "Trigger Ring",
-        "Upgrade Ring",
+        "Upgrade Ring", "Crushing Blow", "Mega Greed",
     },
     melee_mod = { "Brawler" },
 }
@@ -367,7 +367,7 @@ local perk_names = {
     "Poisonous Armor", "Potent Magic", "Power Armor", "Power Punch", "Regenerator",
     "Scavenger", "Sharpshooter", "Slugger", "Snatcher", "Special Delivery",
     "Speed Demon", "Stamina", "Streamer Loot", "Tony's Black Card", "Toxic",
-    "Valued Customer", "Vitality", "All You Can Eat", "Amber Resin", "Assassin",
+    "Valued Customer", "Vitality", "Amber Resin", "Assassin",
     "Big Chests", "Bonus Crystals", "Checklist", "Collector", "Crimson Haze",
     "Critical Blast", "Damage Aura", "Double Vision", "Exploding Enemies", "Fire Aura",
     "Flammable Armor", "Gemstone", "Gold Coating", "Grim Reaper", "Health Is Power",
@@ -380,6 +380,10 @@ local perk_names = {
     "Crystal Asteroids", "Dagger Dash", "Electric Enemies", "Faulty Chests", "Flammable Enemies",
     "Freezing Enemies", "Ice Dash", "Level Up", "Lightning Dash", "Poisonous Enemies",
     "Powerslide", "Rare Treasure",
+    -- Added in the 2.0 update
+    "Charger", "Giant Slayer", "Liquid Core", "Weightlifter",
+    "Fireslide", "Golden Hammer", "Heavy Impact", "Minimalist", "Quality Shipments",
+    "Tempered",
 }
 
 local relic_names = {
@@ -394,6 +398,11 @@ local relic_names = {
     "Overspill Goblet", "Ring Of Favoritism", "Ring Of Tankiness", "Trigger Ring", "Upgrade Ring",
     "Ability Ring", "Portal Amulet", "Ring Of Gravity", "Ring Of Luck", "Ring Of Protection",
     "Ring Of Regenerating Armor", "Ring Of Swiftness", "Twin Ring",
+    -- Added in the 2.0 update
+    "AOE Ring", "Barter Ring", "Blessed Ring", "Corrupt Stocktaker",
+    "Lingering Fumes", "Overcharge Ring", "Sweet Spot",
+    "All You Can Eat", "Ammo Cache", "Crushing Blow", "Lucky Lock", "Mega Greed",
+    "Nourishing Salvage", "Ring Of Confidence", "Ring Of Deceit", "Sand Shield", "Thrusters",
 }
 
 local weapon_mod_names = {
@@ -415,16 +424,20 @@ local weapon_mod_names = {
     "Steady Shot", "Streak Shot", "Supercharged", "Targeting Shot", "Thorn Shot",
     "Time Bolt", "Time Shot", "Torpedo Shot", "Triangle Shot", "Trick Shot",
     "Triple Shot", "Ultra Shot", "Wind Up", "X Shot", "Zig Zag Shot",
+    -- Added in the 2.0 update
+    "Full Focus", "Popcorn Shot", "Tornado Shot",
 }
 
 local melee_mod_names = {
     "Arcane Claws", "Big Claws", "Blender", "Brawler", "Fire Claws",
     "Ice Claws", "Iron Claws", "Lightning Claws", "Poison Claws", "Sharp Claws",
     "Time Claws", "Vampire",
+    -- Added in the 2.0 update
+    "Crystal Claws", "Hard Landing", "Knockback Claws", "Potent Claws", "Prismatic Claws",
 }
 
 local ability_mod_names = {
-    "Aura Explosion", "Barrel Explosion", "Beam Turret", "Big Ability", "Bigger Boom",
+    "Barrel Explosion", "Beam Turret", "Big Ability", "Bigger Boom",
     "Bomb Explosion", "Bouncing Explosion", "Bubble Blast", "Chaotic Explosion", "Clone Explosion",
     "Crystal Barrage", "Crystal Strike", "Dagger Blast", "Damage Explosion", "Energy Ring",
     "Fire Explosion", "Firework Explosion", "Giant Drill", "Glue Explosion", "Grenadier",
@@ -433,6 +446,8 @@ local ability_mod_names = {
     "Sentry Turret", "Sniper Turret", "Spark Explosion", "Spike Strike", "Spinning Blade",
     "Split Ability", "Spore Explosion", "Targeting Explosion", "Thorn Explosion", "Time Explosion",
     "Triple Ability", "Ultra Mushroom", "Wave Turret",
+    -- Added in the 2.0 update
+    "Fast Ability", "Homing Ability", "Orbiting Ability",
 }
 
 local weapon_names = {
@@ -440,15 +455,21 @@ local weapon_names = {
     "Cluster Launcher", "Crossbow", "Dual Pistols", "Dual Shotguns", "Flamethrower",
     "Ice Staff", "Laser Cannons", "Lightning Scepter", "Marksman Rifle", "Minigun",
     "Orb Launcher", "Poison Cannon", "Rocket Launcher", "Seagle", "Sniper",
+    -- Added in the 2.0 update
+    "Popcorn Shotgun",
 }
 
 local melee_names = {
     "Claw", "Dagger", "Hammer", "Katana", "Pickaxe",
+    -- Added in the 2.0 update
+    "Baseball Bat",
 }
 
 local ability_names = {
     "Air Strike", "Black Hole", "Electro Globe", "Grappling Hook",
     "Grenade", "Ice Blast", "Laser Beam",
+    -- Added in the 2.0 update
+    "Boomerang", "Tornado",
 }
 
 -- ---------------------------------------------------------------

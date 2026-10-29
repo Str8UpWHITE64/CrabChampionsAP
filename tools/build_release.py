@@ -13,7 +13,7 @@ Zip layout:
     INSTALL.txt
     CrabChampions/Binaries/Win64/
         dwmapi.dll, UE4SS.dll        UE4SS v3.0.1, unchanged
-        UE4SS-settings.ini           upstream, with ConsoleEnabled = 1
+        UE4SS-settings.ini           upstream + HookLoadMap = 0, with ConsoleEnabled = 1
         LICENSE                      UE4SS MIT license
         Mods/
             <UE4SS built-in mods>

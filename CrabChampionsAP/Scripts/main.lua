@@ -1212,13 +1212,14 @@ RegisterKeyBind(Key.F9, function()
         log("=== DUMPING PICKUP DATA ===")
         if not ItemData.is_resolved() then ItemData.resolve_game_objects() end
 
-        -- Enum names from the public build's header dump. IDs missing here are
+        -- Enum names from the game's header dump. IDs missing here are
         -- printed as numbers, so values added in a newer build still show up.
         local TAG_NAMES = {
-            [0] = "None", [1] = "Healing", [2] = "DamageOverTime", [3] = "Critical",
-            [4] = "Speed", [5] = "Bounce", [6] = "Ice", [7] = "Fire",
-            [8] = "Lightning", [9] = "Poison", [10] = "Arcane", [11] = "Turret",
-            [12] = "Combo", [13] = "GlueShot", [14] = "Charger",
+            [0] = "None", [1] = "Armor", [2] = "Healing", [3] = "HighHealth",
+            [4] = "Block", [5] = "DamageOverTime", [6] = "Critical", [7] = "Speed",
+            [8] = "Bounce", [9] = "Ice", [10] = "Fire", [11] = "Lightning",
+            [12] = "Poison", [13] = "Arcane", [14] = "Turret", [15] = "Combo",
+            [16] = "GlueShot", [17] = "Charger",
         }
         local RARITY_NAMES = {
             [0] = "None", [1] = "Common", [2] = "Epic", [3] = "Legendary", [4] = "Greed",

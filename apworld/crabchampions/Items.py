@@ -40,7 +40,7 @@ class CrabChampsItem(Item):
 key_item_names = set()
 
 # ──────────────────────────────────────────────
-# Perks  (cc_code 1–107)  — stackable
+# Perks  (cc_code 1–116)  — stackable
 # ──────────────────────────────────────────────
 _perk_names = [
     "Anti Crit", "Banana", "Bounty Hunter", "Bulletproof", "Bullseye",
@@ -52,7 +52,7 @@ _perk_names = [
     "Poisonous Armor", "Potent Magic", "Power Armor", "Power Punch", "Regenerator",
     "Scavenger", "Sharpshooter", "Slugger", "Snatcher", "Special Delivery",
     "Speed Demon", "Stamina", "Streamer Loot", "Tony's Black Card", "Toxic",
-    "Valued Customer", "Vitality", "All You Can Eat", "Amber Resin", "Assassin",
+    "Valued Customer", "Vitality", "Amber Resin", "Assassin",
     "Big Chests", "Bonus Crystals", "Checklist", "Collector", "Crimson Haze",
     "Critical Blast", "Damage Aura", "Double Vision", "Exploding Enemies", "Fire Aura",
     "Flammable Armor", "Gemstone", "Gold Coating", "Grim Reaper", "Health Is Power",
@@ -65,6 +65,10 @@ _perk_names = [
     "Crystal Asteroids", "Dagger Dash", "Electric Enemies", "Faulty Chests", "Flammable Enemies",
     "Freezing Enemies", "Ice Dash", "Level Up", "Lightning Dash", "Poisonous Enemies",
     "Powerslide", "Rare Treasure",
+    # Added in the 2.0 update
+    "Charger", "Giant Slayer", "Liquid Core", "Weightlifter",
+    "Fireslide", "Golden Hammer", "Heavy Impact", "Minimalist", "Quality Shipments",
+    "Tempered",
 ]
 
 _perk_items = [
@@ -73,7 +77,7 @@ _perk_items = [
 ]
 
 # ──────────────────────────────────────────────
-# Relics  (cc_code 200–252)  — unique (one copy each)
+# Relics  (cc_code 200–269)  — unique (one copy each)
 # ──────────────────────────────────────────────
 _relic_names = [
     "Adrenaline Amulet", "Blacksmith Amulet", "Combo Ring", "Coral Amulet", "Icebreaker",
@@ -87,6 +91,11 @@ _relic_names = [
     "Overspill Goblet", "Ring Of Favoritism", "Ring Of Tankiness", "Trigger Ring", "Upgrade Ring",
     "Ability Ring", "Portal Amulet", "Ring Of Gravity", "Ring Of Luck", "Ring Of Protection",
     "Ring Of Regenerating Armor", "Ring Of Swiftness", "Twin Ring",
+    # Added in the 2.0 update
+    "AOE Ring", "Barter Ring", "Blessed Ring", "Corrupt Stocktaker",
+    "Lingering Fumes", "Overcharge Ring", "Sweet Spot",
+    "All You Can Eat", "Ammo Cache", "Crushing Blow", "Lucky Lock", "Mega Greed",
+    "Nourishing Salvage", "Ring Of Confidence", "Ring Of Deceit", "Sand Shield", "Thrusters",
 ]
 
 _relic_items = [
@@ -95,13 +104,15 @@ _relic_items = [
 ]
 
 # ──────────────────────────────────────────────
-# Weapons  (cc_code 300–319)
+# Weapons  (cc_code 300–320)
 # ──────────────────────────────────────────────
 _weapon_names = [
     "Arcane Wand", "Auto Rifle", "Auto Shotgun", "Blade Launcher", "Burst Pistol",
     "Cluster Launcher", "Crossbow", "Dual Pistols", "Dual Shotguns", "Flamethrower",
     "Ice Staff", "Laser Cannons", "Lightning Scepter", "Marksman Rifle", "Minigun",
     "Orb Launcher", "Poison Cannon", "Rocket Launcher", "Seagle", "Sniper",
+    # Added in the 2.0 update
+    "Popcorn Shotgun",
 ]
 
 _weapon_items = [
@@ -110,11 +121,13 @@ _weapon_items = [
 ]
 
 # ──────────────────────────────────────────────
-# Abilities  (cc_code 400–406)
+# Abilities  (cc_code 400–408)
 # ──────────────────────────────────────────────
 _ability_names = [
     "Air Strike", "Black Hole", "Electro Globe", "Grappling Hook",
     "Grenade", "Ice Blast", "Laser Beam",
+    # Added in the 2.0 update
+    "Boomerang", "Tornado",
 ]
 
 _ability_items = [
@@ -123,10 +136,12 @@ _ability_items = [
 ]
 
 # ──────────────────────────────────────────────
-# Melee Weapons  (cc_code 500–504)
+# Melee Weapons  (cc_code 500–505)
 # ──────────────────────────────────────────────
 _melee_names = [
     "Claw", "Dagger", "Hammer", "Katana", "Pickaxe",
+    # Added in the 2.0 update
+    "Baseball Bat",
 ]
 
 _melee_items = [
@@ -135,7 +150,7 @@ _melee_items = [
 ]
 
 # ──────────────────────────────────────────────
-# Weapon Mods  (cc_code 600–689)  — stackable
+# Weapon Mods  (cc_code 600–692)  — stackable
 # ──────────────────────────────────────────────
 _weapon_mod_names = [
     "Accelerating Shot", "Arc Shot", "Arcane Blast", "Arcane Shot", "Aura Shot",
@@ -156,6 +171,8 @@ _weapon_mod_names = [
     "Steady Shot", "Streak Shot", "Supercharged", "Targeting Shot", "Thorn Shot",
     "Time Bolt", "Time Shot", "Torpedo Shot", "Triangle Shot", "Trick Shot",
     "Triple Shot", "Ultra Shot", "Wind Up", "X Shot", "Zig Zag Shot",
+    # Added in the 2.0 update
+    "Full Focus", "Popcorn Shot", "Tornado Shot",
 ]
 
 _weapon_mod_items = [
@@ -164,12 +181,14 @@ _weapon_mod_items = [
 ]
 
 # ──────────────────────────────────────────────
-# Melee Mods  (cc_code 700–711)  — stackable
+# Melee Mods  (cc_code 700–716)  — stackable
 # ──────────────────────────────────────────────
 _melee_mod_names = [
     "Arcane Claws", "Big Claws", "Blender", "Brawler", "Fire Claws",
     "Ice Claws", "Iron Claws", "Lightning Claws", "Poison Claws", "Sharp Claws",
     "Time Claws", "Vampire",
+    # Added in the 2.0 update
+    "Crystal Claws", "Hard Landing", "Knockback Claws", "Potent Claws", "Prismatic Claws",
 ]
 
 _melee_mod_items = [
@@ -178,12 +197,12 @@ _melee_mod_items = [
 ]
 
 # ──────────────────────────────────────────────
-# Ability Mods  (cc_code 800–842)  — stackable
+# Ability Mods  (cc_code 800–844)  — stackable
 # Note: "Spike Strike" is renamed to "Spike Strike (Ability)"
 # to avoid collision with the weapon mod of the same name.
 # ──────────────────────────────────────────────
 _ability_mod_names = [
-    "Aura Explosion", "Barrel Explosion", "Beam Turret", "Big Ability", "Bigger Boom",
+    "Barrel Explosion", "Beam Turret", "Big Ability", "Bigger Boom",
     "Bomb Explosion", "Bouncing Explosion", "Bubble Blast", "Chaotic Explosion", "Clone Explosion",
     "Crystal Barrage", "Crystal Strike", "Dagger Blast", "Damage Explosion", "Energy Ring",
     "Fire Explosion", "Firework Explosion", "Giant Drill", "Glue Explosion", "Grenadier",
@@ -192,6 +211,8 @@ _ability_mod_names = [
     "Sentry Turret", "Sniper Turret", "Spark Explosion", "Spike Strike (Ability)", "Spinning Blade",
     "Split Ability", "Spore Explosion", "Targeting Explosion", "Thorn Explosion", "Time Explosion",
     "Triple Ability", "Ultra Mushroom", "Wave Turret",
+    # Added in the 2.0 update
+    "Fast Ability", "Homing Ability", "Orbiting Ability",
 ]
 
 _ability_mod_items = [
@@ -308,6 +329,8 @@ GREED_ITEM_NAMES: frozenset = frozenset({
     "Ring Of Tankiness", "Trigger Ring", "Upgrade Ring",
     # Melee Mods
     "Brawler",
+    # Added in the 2.0 update
+    "Crushing Blow", "Mega Greed",
 })
 
 # Stackable categories: perks, weapon mods, melee mods, ability mods
@@ -324,67 +347,82 @@ _stackable_items: List[CrabChampsItemData] = (
 # Key = item that REQUIRES the tag (its pickup location gets an access rule)
 # Value = list of items that PROVIDE the tag (player needs any one of these)
 PICKUP_TAG_REQUIREMENTS: Dict[str, List[str]] = {
+    # Armor
+    "Power Armor": ["Ethereal Armor", "Nourishing Salvage", "Ring Of Armor",
+                    "Ring Of Regenerating Armor"],
+    "Tempered": ["Ethereal Armor", "Nourishing Salvage", "Ring Of Armor",
+                 "Ring Of Regenerating Armor"],
     # Healing
-    "Amber Resin": ["Endurance", "Grim Reaper", "Health Shot", "Regenerator",
-                     "Ring Of Healing", "Scavenger", "Vampire"],
+    "Amber Resin": ["Endurance", "Grim Reaper", "Health Shot", "Liquid Core",
+                    "Regenerator", "Ring Of Healing", "Scavenger", "Vampire"],
+    # HighHealth
+    "Ring Of Deceit": ["Crushing Blow", "Vitality"],
+    # Block
+    "Ring Of Confidence": ["Bulletproof", "Ring Of Deflection", "Survivor"],
     # DamageOverTime
     "Time Ring": ["Time Bolt", "Time Claws", "Time Explosion", "Time Shot"],
     # Critical
-    "Critical Arrow": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
-    "Critical Blast": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
-    "Critical Lightning": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
-    "Critical Thinking": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
-    "Mega Crit": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
-    "Overspill Goblet": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
-    "Power Punch": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
-    "Ring Of Precision": ["Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Critical Arrow": ["Full Focus", "Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Critical Blast": ["Full Focus", "Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Critical Lightning": ["Full Focus", "Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Critical Thinking": ["Full Focus", "Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Mega Crit": ["Full Focus", "Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Overspill Goblet": ["Full Focus", "Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Power Punch": ["Full Focus", "Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
+    "Ring Of Precision": ["Full Focus", "Hot Shot", "Ring Of Wisdom", "Sharpshooter"],
     # Speed
     "Speed Is Power": ["Ring Of Swiftness", "Speed Demon"],
     # Bounce
     "Heavy Shot": ["Bouncing Shot"],
     # Ice
     "Ice Cold": ["Freezing Enemies", "Ice Aura", "Ice Claws", "Ice Dash",
-                  "Ice Explosion", "Ice Shot", "Ice Storm", "Ice Strike"],
+                 "Ice Explosion", "Ice Shot", "Ice Storm", "Ice Strike"],
     "Ice Ring": ["Freezing Enemies", "Ice Aura", "Ice Claws", "Ice Dash",
-                  "Ice Explosion", "Ice Shot", "Ice Storm", "Ice Strike"],
+                 "Ice Explosion", "Ice Shot", "Ice Storm", "Ice Strike"],
     "Icebreaker": ["Freezing Enemies", "Ice Aura", "Ice Claws", "Ice Dash",
-                    "Ice Explosion", "Ice Shot", "Ice Storm", "Ice Strike"],
+                   "Ice Explosion", "Ice Shot", "Ice Storm", "Ice Strike"],
     # Fire
     "Fire Ring": ["Fire Aura", "Fire Claws", "Fire Explosion", "Fire Shot",
-                   "Fire Storm", "Fire Strike", "Fireball Shot", "Flammable Armor",
-                   "Flammable Enemies", "Powerslide"],
+                  "Fire Storm", "Fire Strike", "Fireball Shot", "Fireslide",
+                  "Flammable Armor", "Flammable Enemies"],
     "Firestarter": ["Fire Aura", "Fire Claws", "Fire Explosion", "Fire Shot",
-                     "Fire Storm", "Fire Strike", "Fireball Shot", "Flammable Armor",
-                     "Flammable Enemies", "Powerslide"],
+                    "Fire Storm", "Fire Strike", "Fireball Shot", "Fireslide",
+                    "Flammable Armor", "Flammable Enemies"],
     "Hot Steam": ["Fire Aura", "Fire Claws", "Fire Explosion", "Fire Shot",
-                   "Fire Storm", "Fire Strike", "Fireball Shot", "Flammable Armor",
-                   "Flammable Enemies", "Powerslide"],
+                  "Fire Storm", "Fire Strike", "Fireball Shot", "Fireslide",
+                  "Flammable Armor", "Flammable Enemies"],
     # Lightning
     "High Voltage": ["Electric Enemies", "Lightning Aura", "Lightning Claws",
-                      "Lightning Dash", "Lightning Explosion", "Lightning Shot",
-                      "Lightning Storm", "Lightning Strike"],
+                     "Lightning Dash", "Lightning Explosion", "Lightning Shot",
+                     "Lightning Storm", "Lightning Strike"],
     "Lightning Ring": ["Electric Enemies", "Lightning Aura", "Lightning Claws",
-                        "Lightning Dash", "Lightning Explosion", "Lightning Shot",
-                        "Lightning Storm", "Lightning Strike"],
+                       "Lightning Dash", "Lightning Explosion", "Lightning Shot",
+                       "Lightning Storm", "Lightning Strike"],
     # Poison
+    "Lingering Fumes": ["Poison Aura", "Poison Claws", "Poison Explosion",
+                        "Poison Shot", "Poison Storm", "Poison Strike",
+                        "Poisonous Armor", "Poisonous Enemies"],
     "Poison Ring": ["Poison Aura", "Poison Claws", "Poison Explosion", "Poison Shot",
-                     "Poison Storm", "Poison Strike", "Poisonous Armor", "Poisonous Enemies"],
+                    "Poison Storm", "Poison Strike", "Poisonous Armor",
+                    "Poisonous Enemies"],
     "Toxic": ["Poison Aura", "Poison Claws", "Poison Explosion", "Poison Shot",
-               "Poison Storm", "Poison Strike", "Poisonous Armor", "Poisonous Enemies"],
+              "Poison Storm", "Poison Strike", "Poisonous Armor", "Poisonous Enemies"],
     # Arcane
     "Arcane Ring": ["Arcane Claws", "Arcane Shot"],
     "Potent Magic": ["Arcane Claws", "Arcane Shot"],
     # Turret
     "Enhanced Turrets": ["Beam Turret", "Mortar Turret", "Sentry Turret",
-                          "Sniper Turret", "Wave Turret"],
+                         "Sniper Turret", "Wave Turret"],
     "Ring Of Healthy Turrets": ["Beam Turret", "Mortar Turret", "Sentry Turret",
-                                 "Sniper Turret", "Wave Turret"],
-    "Twin Ring": ["Beam Turret", "Mortar Turret", "Sentry Turret",
-                   "Sniper Turret", "Wave Turret"],
+                                "Sniper Turret", "Wave Turret"],
+    "Twin Ring": ["Beam Turret", "Mortar Turret", "Sentry Turret", "Sniper Turret",
+                  "Wave Turret"],
     # Combo
     "Combo Ring": ["Crystal Combo", "Damage Combo"],
     # GlueShot
     "Aura Shot": ["Glue Shot"],
+    # Charger
+    "Overcharge Ring": ["Charger"],
 }
 
 # Set of all item names that provide tags (must be progression for state.has() to work)
