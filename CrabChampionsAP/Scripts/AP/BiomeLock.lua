@@ -242,6 +242,16 @@ function M.deactivate()
     end
 end
 
+--- The biome the run is in, as the game's real biome number (1-4), or nil when there is no game state. Works with
+--- the lock off too, when the numbers are the game's own.
+function M.current_biome()
+    local gs = game.gs()
+    if not gs then return nil end
+    local label = num(gs.Biome)
+    if not label then return nil end
+    return real_of_label(label) or label
+end
+
 function M.is_active() return cfg.enabled end
 function M.is_owned(real) return owned[real] == true end
 function M.starting_biome() return cfg.start end

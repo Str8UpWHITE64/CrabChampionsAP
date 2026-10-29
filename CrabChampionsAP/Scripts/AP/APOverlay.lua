@@ -845,7 +845,6 @@ function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, 
     if not LocationData or not ItemApply or not ItemData then return end
 
     local CAT = ItemData.CATEGORY
-    local run_length = LocationData.run_length or 28
     local req_rank = LocationData.required_rank or 0
 
     --- Build a per-item line: figure out the (received, completed) state and
@@ -855,9 +854,9 @@ function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, 
         local got = da_full_name and ItemApply.unlocked[da_full_name]
         local completed = false
         if APClient and loc_id_fn then
-            local lid = loc_id_fn(run_length, name, req_rank)
-            if lid and APClient.is_location_checked then
-                completed = APClient:is_location_checked(lid) == true
+            if APClient.is_location_checked then
+                completed = LocationData.final_run_checked(loc_id_fn, name, req_rank,
+                    function(id) return APClient:is_location_checked(id) == true end)
             end
         end
         local marker

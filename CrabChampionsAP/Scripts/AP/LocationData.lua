@@ -9,6 +9,9 @@
 --   1 = Perk Pickups, 2 = Relic Pickups
 --   3 = Rank Runs, 4 = Weapon Runs, 5 = Melee Runs, 6 = Ability Runs
 --   7 = Weapon Mod Pickups, 8 = Melee Mod Pickups, 9 = Ability Mod Pickups
+--   10-13 = the same island and equipment checks in the biome layout
+--           (check_layout = biome): 10 = islands, 11 = weapon, 12 = melee, 13 = ability runs.
+--           A biome check's index replaces the island number: loop * 28 + (biome - 1) * 7 + slot.
 
 local M = {}
 
@@ -34,6 +37,14 @@ M.REGION = {
     weapon_mod  = 7,
     melee_mod   = 8,
     ability_mod = 9,
+}
+
+-- Regions used instead of island / weapon_run / melee_run / ability_run in the biome layout.
+M.BIOME_REGION = {
+    island      = 10,
+    weapon_run  = 11,
+    melee_run   = 12,
+    ability_run = 13,
 }
 
 M.MAX_ISLANDS = 56
@@ -63,6 +74,8 @@ M.cascade_ranked_checks = false
 M.max_rank = 0
 M.required_rank = 0
 M.run_length = 28
+M.check_layout = 0          -- 0=island_number, 1=biome
+M.biome_layout = false
 M.equipment_check_mode = 0  -- 0=regular, 1=filler_only, 2=disabled
 M.greed_item_mode = 0       -- 0=auto, 1=drop, 2=skip
 M.pickup_checks = true
@@ -158,6 +171,8 @@ function M.configure(slot_data)
     M.max_rank = tonumber(opts.max_rank) or 0
     M.required_rank = tonumber(opts.required_rank) or 0
     M.run_length = tonumber(opts.run_length) or 28
+    M.check_layout = tonumber(opts.check_layout) or 0
+    M.biome_layout = M.check_layout == 1
     M.equipment_check_mode = tonumber(opts.equipment_check_mode) or 0
     M.greed_item_mode = tonumber(opts.greed_item_mode) or 0
     M.pickup_checks = (opts.pickup_checks == nil) and true or opts.pickup_checks
@@ -233,6 +248,7 @@ function M.configure(slot_data)
         .. " max_rank=" .. tostring(M.max_rank)
         .. " required_rank=" .. tostring(M.required_rank)
         .. " run_length=" .. tostring(M.run_length)
+        .. " check_layout=" .. tostring(M.check_layout)
         .. " equip_mode=" .. tostring(M.equipment_check_mode)
         .. " greed_mode=" .. tostring(M.greed_item_mode)
         .. " pickup_checks=" .. tostring(M.pickup_checks)
@@ -544,6 +560,90 @@ function M.display_name(kind, full_name)
 end
 
 -- ---------------------------------------------------------------
+-- Check layout
+-- ---------------------------------------------------------------
+
+local BIOME_CYCLE = 28
+
+--- Region a kind of island/equipment check lives in for the current layout.
+---@param kind string "island" | "weapon_run" | "melee_run" | "ability_run"
+local function region_of(kind)
+    if M.biome_layout then return M.BIOME_REGION[kind] end
+    return M.REGION[kind]
+end
+
+--- The number the island/equipment ID functions take for a cleared island.
+--- Island layout: the island number. Biome layout: the biome check index
+--- (1..56) from the biome (game number 1-4) the island was cleared in, or nil
+--- when the biome is not known. Only the second pass of a full-length run is
+--- Loop 2; a short run never leaves the first.
+---@param island_num number 1-based island number of the run
+---@param biome number|nil game biome number 1-4
+function M.check_index(island_num, biome)
+    island_num = tonumber(island_num)
+    if not island_num or island_num < 1 then return nil end
+    if not M.biome_layout then return island_num end
+    biome = tonumber(biome)
+    if not biome or biome < 1 or biome > 4 then return nil end
+    local slot = (island_num - 1) % M.BIOME_LENGTH + 1
+    local loop = (M.run_length > BIOME_CYCLE and island_num > BIOME_CYCLE) and 1 or 0
+    return loop * BIOME_CYCLE + (biome - 1) * M.BIOME_LENGTH + slot
+end
+
+local BIOME_LABELS = { "Tropical", "Arctic", "Desert", "Volcanic" }
+
+--- Name of a biome-layout island check, as the apworld calls it: "Complete Tropical Island 3",
+--- "Reach Arctic Shop (Loop 2)". Used for log lines.
+---@param idx number biome check index (1..56)
+function M.check_name(idx)
+    idx = tonumber(idx)
+    if not idx or idx < 1 or idx > M.MAX_ISLANDS then return "?" end
+    local loop = (idx - 1) // BIOME_CYCLE
+    local rest = (idx - 1) % BIOME_CYCLE
+    local biome = BIOME_LABELS[rest // M.BIOME_LENGTH + 1]
+    local slot = rest % M.BIOME_LENGTH + 1
+    local base = (slot == 6) and ("Reach " .. biome .. " Shop") or ("Complete " .. biome .. " Island " .. slot)
+    return base .. (loop > 0 and " (Loop 2)" or "")
+end
+
+-- Biome layout: "Complete Run with <item> on <Rank>", sent on the run's final island in whatever biome it is.
+M.RUN_REGION = { weapon = 14, melee = 15, ability = 16 }
+
+--- Location ID of a run-level equipment check (biome layout only).
+---@param kind string "weapon" | "melee" | "ability"
+---@param name string clean item name
+---@param rank number 0-based rank
+function M.run_equipment_location_id(kind, name, rank)
+    local names = ({ weapon = M.weapon_names, melee = M.melee_names, ability = M.ability_names })[kind]
+    local region = M.RUN_REGION[kind]
+    rank = tonumber(rank)
+    if not names or not region or not rank or rank < 0 or rank >= M.NUM_RANKS then return nil end
+    local key = name_to_key(name)
+    for i, n in ipairs(names) do
+        if name_to_key(n) == key then
+            return M.BASE_ID + M.TABLE_OFFSET * region + rank * #names + (i - 1)
+        end
+    end
+    return nil
+end
+
+--- Whether an equipment run was completed on the run's final island. `loc_id_fn` is one of the
+--- *_run_location_id_by_name functions and `is_checked` takes a location ID. The island layout looks at its
+--- final-island check; the biome layout at the run-level check.
+function M.final_run_checked(loc_id_fn, name, rank, is_checked)
+    local lid
+    if M.biome_layout then
+        local kind = (loc_id_fn == M.weapon_run_location_id_by_name and "weapon")
+            or (loc_id_fn == M.melee_run_location_id_by_name and "melee")
+            or (loc_id_fn == M.ability_run_location_id_by_name and "ability")
+        lid = kind and M.run_equipment_location_id(kind, name, rank)
+    else
+        lid = loc_id_fn(M.run_length, name, rank)
+    end
+    return lid ~= nil and is_checked(lid) == true
+end
+
+-- ---------------------------------------------------------------
 -- Island completion locations
 -- ---------------------------------------------------------------
 
@@ -566,7 +666,7 @@ function M.island_location_id(island_num, rank)
         position = island_num
     end
 
-    return M.BASE_ID + (M.TABLE_OFFSET * M.REGION.island) + position
+    return M.BASE_ID + (M.TABLE_OFFSET * region_of("island")) + position
 end
 
 function M.victory_location_id()
@@ -620,7 +720,7 @@ function M.weapon_run_location_id(island_num, weapon_full_name, rank)
     if not key then return nil end
     local idx = position_maps.weapon and position_maps.weapon[key]
     if not idx then return nil end
-    return equipment_run_id(M.REGION.weapon_run, #weapon_names, island_num, idx, rank)
+    return equipment_run_id(region_of("weapon_run"), #weapon_names, island_num, idx, rank)
 end
 
 --- Get location ID for melee run.
@@ -629,7 +729,7 @@ function M.melee_run_location_id(island_num, melee_full_name, rank)
     if not key then return nil end
     local idx = position_maps.melee and position_maps.melee[key]
     if not idx then return nil end
-    return equipment_run_id(M.REGION.melee_run, #melee_names, island_num, idx, rank)
+    return equipment_run_id(region_of("melee_run"), #melee_names, island_num, idx, rank)
 end
 
 --- Get location ID for ability run.
@@ -638,7 +738,7 @@ function M.ability_run_location_id(island_num, ability_full_name, rank)
     if not key then return nil end
     local idx = position_maps.ability and position_maps.ability[key]
     if not idx then return nil end
-    return equipment_run_id(M.REGION.ability_run, #ability_names, island_num, idx, rank)
+    return equipment_run_id(region_of("ability_run"), #ability_names, island_num, idx, rank)
 end
 
 --- Get location ID for weapon run by clean name (e.g. "Auto Rifle").
@@ -646,7 +746,7 @@ function M.weapon_run_location_id_by_name(island_num, weapon_name, rank)
     local key = name_to_key(weapon_name)
     local idx = position_maps.weapon and position_maps.weapon[key]
     if not idx then return nil end
-    return equipment_run_id(M.REGION.weapon_run, #weapon_names, island_num, idx, rank)
+    return equipment_run_id(region_of("weapon_run"), #weapon_names, island_num, idx, rank)
 end
 
 --- Get location ID for melee run by clean name (e.g. "Hammer").
@@ -654,7 +754,7 @@ function M.melee_run_location_id_by_name(island_num, melee_name, rank)
     local key = name_to_key(melee_name)
     local idx = position_maps.melee and position_maps.melee[key]
     if not idx then return nil end
-    return equipment_run_id(M.REGION.melee_run, #melee_names, island_num, idx, rank)
+    return equipment_run_id(region_of("melee_run"), #melee_names, island_num, idx, rank)
 end
 
 --- Get location ID for ability run by clean name (e.g. "Grenade").
@@ -662,7 +762,7 @@ function M.ability_run_location_id_by_name(island_num, ability_name, rank)
     local key = name_to_key(ability_name)
     local idx = position_maps.ability and position_maps.ability[key]
     if not idx then return nil end
-    return equipment_run_id(M.REGION.ability_run, #ability_names, island_num, idx, rank)
+    return equipment_run_id(region_of("ability_run"), #ability_names, island_num, idx, rank)
 end
 
 --- Get display name for an equipment DA (for logging).

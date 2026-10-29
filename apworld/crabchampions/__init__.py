@@ -3,7 +3,7 @@ from typing import Dict, Set, List
 from BaseClasses import MultiWorld, Region, Item, Entrance, Tutorial, ItemClassification, LocationProgressType
 
 from worlds.AutoWorld import World, WebWorld
-from worlds.generic.Rules import set_rule
+from worlds.generic.Rules import set_rule, add_rule
 
 from .Items import (
     CrabChampsItem, CrabChampsItemCategory, item_dictionary, key_item_names,
@@ -16,6 +16,8 @@ from .Locations import (
     CrabChampsLocation, CrabChampsLocationCategory, location_tables,
     RANK_NAMES, MAX_ISLANDS, NUM_RANKS, ID_LAYOUT,
     rank_from_location_name, SHOP_ISLANDS, _island_prefix,
+    BIOME_BASE_CATEGORY, ISLAND_TO_BIOME_CATEGORY, biome_index_from_name,
+    biome_index_to_biome,
 )
 from .Options import CrabChampsOption
 
@@ -233,6 +235,18 @@ class CrabChampsWorld(World):
                 self.enabled_location_categories.add(CrabChampsLocationCategory.ABILITY_RUN)
             self.enabled_location_categories.add(CrabChampsLocationCategory.RANKED_ABILITY_RUN)
 
+        # Biome layout: the island checks switch to their biome twins, and the goal gets run-level equipment
+        # checks (the biome layout has no single final-island check to count).
+        if self.options.check_layout.value == 1:
+            self.enabled_location_categories = {
+                ISLAND_TO_BIOME_CATEGORY.get(c, c) for c in self.enabled_location_categories
+            }
+            self.enabled_location_categories.add(CrabChampsLocationCategory.RUN_WEAPON)
+            if self.options.melee_for_completion.value > 0:
+                self.enabled_location_categories.add(CrabChampsLocationCategory.RUN_MELEE)
+            if self.options.ability_for_completion.value > 0:
+                self.enabled_location_categories.add(CrabChampsLocationCategory.RUN_ABILITY)
+
         # Pickup subsets: select once when either limit option is enabled.
         # Both options share the same chosen subset.
         if (self.options.limit_pickup_pool.value
@@ -264,6 +278,17 @@ class CrabChampsWorld(World):
             "Weapon Mod Pickups",
             "Melee Mod Pickups",
             "Ability Mod Pickups",
+            "Biome Island Completion",
+            "Ranked Biome Island Completion",
+            "Biome Weapon Runs",
+            "Ranked Biome Weapon Runs",
+            "Biome Melee Runs",
+            "Ranked Biome Melee Runs",
+            "Biome Ability Runs",
+            "Ranked Biome Ability Runs",
+            "Run Weapon Completion",
+            "Run Melee Completion",
+            "Run Ability Completion",
         ]
         regions.update({
             name: self.create_region(name, location_tables[name])
@@ -287,20 +312,27 @@ class CrabChampsWorld(World):
     def _is_pool_equipment(self, equip_name: str, category) -> bool:
         """Check if an equipment name belongs to the randomized AP pool."""
         if category in (CrabChampsLocationCategory.WEAPON_RUN,
-                        CrabChampsLocationCategory.RANKED_WEAPON_RUN):
+                        CrabChampsLocationCategory.RANKED_WEAPON_RUN,
+                        CrabChampsLocationCategory.RUN_WEAPON):
             return equip_name in self.pool_weapon_set
         if category in (CrabChampsLocationCategory.MELEE_RUN,
-                        CrabChampsLocationCategory.RANKED_MELEE_RUN):
+                        CrabChampsLocationCategory.RANKED_MELEE_RUN,
+                        CrabChampsLocationCategory.RUN_MELEE):
             return equip_name in self.pool_melee_set
         if category in (CrabChampsLocationCategory.ABILITY_RUN,
-                        CrabChampsLocationCategory.RANKED_ABILITY_RUN):
+                        CrabChampsLocationCategory.RANKED_ABILITY_RUN,
+                        CrabChampsLocationCategory.RUN_ABILITY):
             return equip_name in self.pool_ability_set
         return False
 
     @staticmethod
     def _extract_island_num(name: str) -> int:
         """Extract the island number from a location name.
-        Handles both 'Complete Island X ...' and 'Reach Shop on Island X ...' patterns."""
+        Handles both 'Complete Island X ...' and 'Reach Shop on Island X ...' patterns.
+        A biome-layout name gives its position in the run (1..56) instead."""
+        k = biome_index_from_name(name)
+        if k >= 0:
+            return k + 1
         idx = name.find("Island ")
         if idx == -1:
             return 0
@@ -314,10 +346,12 @@ class CrabChampsWorld(World):
         """Check if a location should be included based on options."""
         if location.category not in self.enabled_location_categories:
             return False
+        # Biome-layout checks are filtered like the island ones they mirror.
+        category = BIOME_BASE_CATEGORY.get(location.category, location.category)
 
         # Exclude greed pickup locations when greed_item_mode == skip
         if self.options.greed_item_mode.value == 2:
-            if location.category in (
+            if category in (
                 CrabChampsLocationCategory.PERK,
                 CrabChampsLocationCategory.RELIC,
                 CrabChampsLocationCategory.MELEE_MOD,
@@ -330,7 +364,7 @@ class CrabChampsWorld(World):
         # Limit pickup locations to the chosen subset when enabled.
         # Only restrict pickup categories — equipment runs are handled separately.
         if self.options.limit_pickup_locations.value:
-            if location.category in (
+            if category in (
                 CrabChampsLocationCategory.PERK,
                 CrabChampsLocationCategory.RELIC,
                 CrabChampsLocationCategory.WEAPON_MOD,
@@ -359,14 +393,14 @@ class CrabChampsWorld(World):
 
         # Island locations: filter by run_length.
         # When extra_ranked is on, skip unranked island completions (ranked versions cover them).
-        if location.category == CrabChampsLocationCategory.ISLAND:
+        if category == CrabChampsLocationCategory.ISLAND:
             if extra_ranked:
                 return False
             island_num = self._extract_island_num(location.name)
             return island_num <= run_length
 
         # Ranked island locations: filter by run_length and allowed ranks
-        if location.category == CrabChampsLocationCategory.RANKED_ISLAND:
+        if category == CrabChampsLocationCategory.RANKED_ISLAND:
             rank = rank_from_location_name(location.name)
             if not _rank_allowed(rank):
                 return False
@@ -375,7 +409,7 @@ class CrabChampsWorld(World):
 
         # Rank runs: only required_rank when extra_ranked is off,
         # all ranks up to max_rank when extra_ranked is on
-        if location.category == CrabChampsLocationCategory.RANK_RUN:
+        if category == CrabChampsLocationCategory.RANK_RUN:
             rank_name = location.name.replace("Complete Run on ", "")
             rank_index = RANK_NAMES.index(rank_name) if rank_name in RANK_NAMES else -1
             if extra_ranked:
@@ -385,7 +419,7 @@ class CrabChampsWorld(World):
 
         # Equipment runs (unranked): filter by run_length + pool membership.
         # When extra_ranked is on, skip unranked equipment runs (ranked versions cover them).
-        if location.category in (
+        if category in (
             CrabChampsLocationCategory.WEAPON_RUN,
             CrabChampsLocationCategory.MELEE_RUN,
             CrabChampsLocationCategory.ABILITY_RUN,
@@ -393,7 +427,7 @@ class CrabChampsWorld(World):
             if extra_ranked:
                 return False
             equip_name = self._extract_equip_name(location.name)
-            is_pool = self._is_pool_equipment(equip_name, location.category)
+            is_pool = self._is_pool_equipment(equip_name, category)
             # Non-pool equipment: exclude when equip_mode is disabled
             if not is_pool and equip_mode == 2:
                 return False
@@ -401,13 +435,17 @@ class CrabChampsWorld(World):
             return island_num <= run_length
 
         # Equipment runs (ranked): filter by run_length, allowed ranks, pool membership
-        if location.category in (
+        # The run-level checks follow the ranked rules too, without a run length.
+        if category in (
             CrabChampsLocationCategory.RANKED_WEAPON_RUN,
             CrabChampsLocationCategory.RANKED_MELEE_RUN,
             CrabChampsLocationCategory.RANKED_ABILITY_RUN,
+            CrabChampsLocationCategory.RUN_WEAPON,
+            CrabChampsLocationCategory.RUN_MELEE,
+            CrabChampsLocationCategory.RUN_ABILITY,
         ):
             equip_name = self._extract_equip_name(location.name)
-            is_pool = self._is_pool_equipment(equip_name, location.category)
+            is_pool = self._is_pool_equipment(equip_name, category)
             if not is_pool and equip_mode == 2:
                 return False
             rank = rank_from_location_name(location.name)
@@ -471,6 +509,7 @@ class CrabChampsWorld(World):
         )
         drop_redundant = minimize and have_equipment
         excluded = 0
+        biome_layout = self.options.check_layout.value == 1
 
         n_non_pool_weapons = len(self.non_pool_weapons)
         n_non_pool_melee = len(self.non_pool_melee) if self.options.melee_for_completion.value > 0 else 0
@@ -492,6 +531,9 @@ class CrabChampsWorld(World):
                 excluded += run_length * n_non_pool
             # Ranked non-pool equipment runs (one set per included rank tier)
             excluded += len(ranked_tiers) * run_length * n_non_pool
+            # Biome layout: one run-level check per item and rank tier.
+            if biome_layout:
+                excluded += len(ranked_tiers) * n_non_pool
 
         # Non-progression above required rank (only when extra_ranked adds higher ranks)
         if non_prog_above and extra_ranked:
@@ -508,12 +550,16 @@ class CrabChampsWorld(World):
                 # Ranked equipment runs above required (only if not already counted by filler_only)
                 if equip_mode != 1:
                     excluded += run_length * n_all_equip
+                    if biome_layout:
+                        excluded += n_all_equip
                 else:
                     # filler_only already counted non-pool; only pool equipment above required is new
                     n_pool_weapons = len(self.pool_weapons)
                     n_pool_melee = len(self.pool_melee)
                     n_pool_abilities = len(self.pool_abilities)
                     excluded += run_length * (n_pool_weapons + n_pool_melee + n_pool_abilities)
+                    if biome_layout:
+                        excluded += n_pool_weapons + n_pool_melee + n_pool_abilities
                 # Rank run location
                 excluded += 1
 
@@ -644,10 +690,9 @@ class CrabChampsWorld(World):
     def has_biome_access(self, state, biome: int) -> bool:
         """Whether the player can enter a biome (game number 1-4).
 
-        No location needs this yet: island numbers keep counting when a biome
-        repeats, so every island check is reachable with the starting biome
-        alone.  A check tied to one biome (a per-biome check, for example) gets
-        `lambda state: self.has_biome_access(state, biome)` as its rule.
+        Island-number checks do not need it: island numbers keep counting when
+        a biome repeats, so they are all reachable with the starting biome
+        alone.  Biome-layout checks use it as their rule.
         """
         if not self.options.biome_lock.value:
             return True
@@ -671,6 +716,9 @@ class CrabChampsWorld(World):
             CrabChampsLocationCategory.RANKED_WEAPON_RUN,
             CrabChampsLocationCategory.RANKED_MELEE_RUN,
             CrabChampsLocationCategory.RANKED_ABILITY_RUN,
+            CrabChampsLocationCategory.RUN_WEAPON,
+            CrabChampsLocationCategory.RUN_MELEE,
+            CrabChampsLocationCategory.RUN_ABILITY,
         }
         pickup_cats = (
             CrabChampsLocationCategory.PERK,
@@ -688,14 +736,20 @@ class CrabChampsWorld(World):
         for location in self.multiworld.get_locations(self.player):
             if not hasattr(location, 'category'):
                 continue
-            cat = location.category
+            cat = BIOME_BASE_CATEGORY.get(location.category, location.category)
+
+            # A biome check needs that biome's Access item. The starting biome's
+            # is precollected, so its checks are open from the start.
+            if location.category in BIOME_BASE_CATEGORY and self.options.biome_lock.value:
+                biome = biome_index_to_biome(biome_index_from_name(location.name))
+                set_rule(location, lambda state, b=biome: self.has_biome_access(state, b))
 
             # Equipment run: pool items need state.has() rule
             if cat in _equip_categories:
                 equip_name = self._extract_equip_name(location.name)
                 is_pool = self._is_pool_equipment(equip_name, cat)
                 if is_pool:
-                    set_rule(location, lambda state, en=equip_name: state.has(en, self.player))
+                    add_rule(location, lambda state, en=equip_name: state.has(en, self.player))
                 elif equip_mode == 1:  # filler_only for non-pool
                     location.progress_type = LocationProgressType.EXCLUDED
 
@@ -787,6 +841,8 @@ class CrabChampsWorld(World):
                 "cascade_ranked_checks": bool(self.options.cascade_ranked_checks.value),
                 "minimize_run_checks": bool(self.options.minimize_run_checks.value),
                 "run_length": self.options.run_length.value,
+                # 0 = island_number, 1 = biome. Seeds without it use island numbers.
+                "check_layout": self.options.check_layout.value,
                 # Only pool equipment counts toward completion.  Seeds made
                 # before this field existed also counted non-pool runs, and
                 # the client keeps that rule for them.

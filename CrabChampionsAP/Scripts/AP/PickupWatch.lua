@@ -19,6 +19,11 @@ local client = nil
 -- Island counter (incremented on each ClientOnClearedIsland)
 local island_counter = 0
 
+-- Biome each island of this run was cleared in (island -> biome number), for the biome check layout. The last
+-- island of a biome may be cleared after the game has moved on to the next one, so it takes the biome of the
+-- island before it.
+local biome_of_island = {}
+
 -- Shop island handling: when the next island is a shop, we set this flag
 -- so the portal hook can send the shop check and bump the counter.
 local pending_shop_island = nil
@@ -209,7 +214,6 @@ function M.check_victory()
     if not client then return false end
 
     local req_rank = LocationData.required_rank
-    local final = LocationData.run_length
     local equip_mode = LocationData.equipment_check_mode
 
     -- Check rank run at required rank is completed
@@ -227,13 +231,13 @@ function M.check_victory()
     local count_non_pool = not LocationData.pool_only_completion and equip_mode ~= 2
     ---@param pool_set table Set of pool equipment names (name -> true)
     ---@param all_names table Ordered list of every name of this kind
-    ---@param loc_id_fn function (island, name, rank) -> location_id
+    ---@param loc_id_fn function (check index, name, rank) -> location_id
     local function count_completed_runs(pool_set, all_names, loc_id_fn)
         local count = 0
         for _, name in ipairs(all_names) do
             if pool_set[name] or count_non_pool then
-                local loc_id = loc_id_fn(final, name, req_rank)
-                if loc_id and client:is_location_checked(loc_id) then
+                if LocationData.final_run_checked(loc_id_fn, name, req_rank,
+                        function(id) return client:is_location_checked(id) end) then
                     count = count + 1
                 end
             end
@@ -422,6 +426,23 @@ function M.install(ap_client)
         return LocationData.equipment_check_mode ~= 2
     end
 
+    local function biome_for_island(num)
+        if not LocationData.biome_layout then return nil end
+        local ok, BiomeLock = pcall(require, "AP/BiomeLock")
+        local cur = ok and BiomeLock and BiomeLock.current_biome and BiomeLock.current_biome() or nil
+        if num % LocationData.BIOME_LENGTH == 0 then
+            -- The latest island of this biome seen so far (the shop, or an earlier one if the shop was not seen).
+            for back = 1, LocationData.BIOME_LENGTH - 1 do
+                if biome_of_island[num - back] then
+                    cur = biome_of_island[num - back]
+                    break
+                end
+            end
+        end
+        if cur then biome_of_island[num] = cur end
+        return cur
+    end
+
     --- Send all location checks for a given island number.
     --- @param num number The island number (1-based)
     --- @param label string Log prefix ("Island cleared" or "Reached shop")
@@ -430,9 +451,19 @@ function M.install(ap_client)
         log(label .. " — counter=" .. tostring(num) .. " rank=" .. tostring(rank)
             .. " (" .. (LocationData.RANK_NAMES[rank + 1] or "?") .. ")")
 
+        -- The number the ID functions take: the island number, or the biome check index.
+        local idx = LocationData.check_index(num, biome_for_island(num))
+        if not idx then
+            log("Biome unknown for island " .. tostring(num) .. " — skipping island checks")
+            return
+        end
+
         local is_shop = LocationData.SHOP_ISLANDS[num] or false
         local check_ranks = ranks_to_check(rank)
         local pfx = is_shop and "Reach Shop on Island" or "Complete Island"
+        -- Names for the log: the check's own name (biome layout: "Complete Tropical Island 3").
+        local lname = LocationData.biome_layout and LocationData.check_name(idx) or (pfx .. " " .. num)
+        local iname = LocationData.biome_layout and lname or ("Island " .. num)
 
         -- Island completion checks
         if LocationData.extra_ranked_island_checks then
@@ -441,37 +472,38 @@ function M.install(ap_client)
                 if r <= LocationData.max_rank then
                     local rname = LocationData.RANK_NAMES[r + 1] or "?"
                     try_send_check(
-                        LocationData.island_location_id(num, r),
-                        "Ranked island: " .. pfx .. " " .. num .. " on " .. rname
+                        LocationData.island_location_id(idx, r),
+                        "Ranked island: " .. lname .. " on " .. rname
                     )
                 end
             end
         else
             -- Normal mode: send unranked check + ranked check at required_rank
             try_send_check(
-                LocationData.island_location_id(num),
-                "Island check: " .. pfx .. " " .. num
+                LocationData.island_location_id(idx),
+                "Island check: " .. lname
             )
             if rank >= LocationData.required_rank then
                 local rname = LocationData.RANK_NAMES[LocationData.required_rank + 1] or "?"
                 try_send_check(
-                    LocationData.island_location_id(num, LocationData.required_rank),
-                    "Ranked island: " .. pfx .. " " .. num .. " on " .. rname
+                    LocationData.island_location_id(idx, LocationData.required_rank),
+                    "Ranked island: " .. lname .. " on " .. rname
                 )
             end
         end
 
         -- Equipment run checks
         local ps = get_ps()
+        local weapon_fn, melee_fn, ability_fn
         if ps then
             local w_ok, w_da = pcall(function() return ps.WeaponDA end)
-            local weapon_fn = w_ok and get_full_name(w_da) or nil
+            weapon_fn = w_ok and get_full_name(w_da) or nil
 
             local m_ok, m_da = pcall(function() return ps.MeleeDA end)
-            local melee_fn = m_ok and get_full_name(m_da) or nil
+            melee_fn = m_ok and get_full_name(m_da) or nil
 
             local a_ok, a_da = pcall(function() return ps.AbilityDA end)
-            local ability_fn = a_ok and get_full_name(a_da) or nil
+            ability_fn = a_ok and get_full_name(a_da) or nil
 
             -- Unranked + required-rank equipment checks (when extra_ranked is off)
             if not LocationData.extra_ranked_island_checks then
@@ -483,13 +515,13 @@ function M.install(ap_client)
                     local wname = LocationData.equipment_name("weapon", weapon_fn)
                     if should_check_equip(wname, LocationData.is_pool_weapon) then
                         try_send_check(
-                            LocationData.weapon_run_location_id(num, weapon_fn),
-                            "Weapon run: Island " .. num .. " with " .. wname
+                            LocationData.weapon_run_location_id(idx, weapon_fn),
+                            "Weapon run: " .. iname .. " with " .. wname
                         )
                         if at_req then
                             try_send_check(
-                                LocationData.weapon_run_location_id(num, weapon_fn, req_rank),
-                                "Ranked weapon: Island " .. num .. " with " .. wname .. " on " .. rname
+                                LocationData.weapon_run_location_id(idx, weapon_fn, req_rank),
+                                "Ranked weapon: " .. iname .. " with " .. wname .. " on " .. rname
                             )
                         end
                     end
@@ -498,13 +530,13 @@ function M.install(ap_client)
                     local mname = LocationData.equipment_name("melee", melee_fn)
                     if should_check_equip(mname, LocationData.is_pool_melee) then
                         try_send_check(
-                            LocationData.melee_run_location_id(num, melee_fn),
-                            "Melee run: Island " .. num .. " with " .. mname
+                            LocationData.melee_run_location_id(idx, melee_fn),
+                            "Melee run: " .. iname .. " with " .. mname
                         )
                         if at_req then
                             try_send_check(
-                                LocationData.melee_run_location_id(num, melee_fn, req_rank),
-                                "Ranked melee: Island " .. num .. " with " .. mname .. " on " .. rname
+                                LocationData.melee_run_location_id(idx, melee_fn, req_rank),
+                                "Ranked melee: " .. iname .. " with " .. mname .. " on " .. rname
                             )
                         end
                     end
@@ -513,13 +545,13 @@ function M.install(ap_client)
                     local aname = LocationData.equipment_name("ability", ability_fn)
                     if should_check_equip(aname, LocationData.is_pool_ability) then
                         try_send_check(
-                            LocationData.ability_run_location_id(num, ability_fn),
-                            "Ability run: Island " .. num .. " with " .. aname
+                            LocationData.ability_run_location_id(idx, ability_fn),
+                            "Ability run: " .. iname .. " with " .. aname
                         )
                         if at_req then
                             try_send_check(
-                                LocationData.ability_run_location_id(num, ability_fn, req_rank),
-                                "Ranked ability: Island " .. num .. " with " .. aname .. " on " .. rname
+                                LocationData.ability_run_location_id(idx, ability_fn, req_rank),
+                                "Ranked ability: " .. iname .. " with " .. aname .. " on " .. rname
                             )
                         end
                     end
@@ -535,8 +567,8 @@ function M.install(ap_client)
                             local wname = LocationData.equipment_name("weapon", weapon_fn)
                             if should_check_equip(wname, LocationData.is_pool_weapon) then
                                 try_send_check(
-                                    LocationData.weapon_run_location_id(num, weapon_fn, r),
-                                    "Ranked weapon: Island " .. num .. " with " .. wname .. " on " .. rname
+                                    LocationData.weapon_run_location_id(idx, weapon_fn, r),
+                                    "Ranked weapon: " .. iname .. " with " .. wname .. " on " .. rname
                                 )
                             end
                         end
@@ -544,8 +576,8 @@ function M.install(ap_client)
                             local mname = LocationData.equipment_name("melee", melee_fn)
                             if should_check_equip(mname, LocationData.is_pool_melee) then
                                 try_send_check(
-                                    LocationData.melee_run_location_id(num, melee_fn, r),
-                                    "Ranked melee: Island " .. num .. " with " .. mname .. " on " .. rname
+                                    LocationData.melee_run_location_id(idx, melee_fn, r),
+                                    "Ranked melee: " .. iname .. " with " .. mname .. " on " .. rname
                                 )
                             end
                         end
@@ -553,8 +585,8 @@ function M.install(ap_client)
                             local aname = LocationData.equipment_name("ability", ability_fn)
                             if should_check_equip(aname, LocationData.is_pool_ability) then
                                 try_send_check(
-                                    LocationData.ability_run_location_id(num, ability_fn, r),
-                                    "Ranked ability: Island " .. num .. " with " .. aname .. " on " .. rname
+                                    LocationData.ability_run_location_id(idx, ability_fn, r),
+                                    "Ranked ability: " .. iname .. " with " .. aname .. " on " .. rname
                                 )
                             end
                         end
@@ -587,6 +619,37 @@ function M.install(ap_client)
                         LocationData.rank_run_location_id(LocationData.required_rank),
                         "Rank run: Complete Run on " .. rname
                     )
+                end
+            end
+
+            -- Biome layout: the goal counts run-level equipment checks, which fire on the final island in any biome.
+            if LocationData.biome_layout then
+                local run_ranks = {}
+                if LocationData.extra_ranked_island_checks then
+                    for _, r in ipairs(check_ranks) do
+                        if r <= LocationData.max_rank then run_ranks[#run_ranks + 1] = r end
+                    end
+                elseif rank >= LocationData.required_rank then
+                    run_ranks[1] = LocationData.required_rank
+                end
+                local kinds = {
+                    { "weapon", weapon_fn, LocationData.is_pool_weapon },
+                    { "melee", melee_fn, LocationData.is_pool_melee },
+                    { "ability", ability_fn, LocationData.is_pool_ability },
+                }
+                for _, k in ipairs(kinds) do
+                    if k[2] then
+                        local ename = LocationData.equipment_name(k[1], k[2])
+                        if should_check_equip(ename, k[3]) then
+                            for _, r in ipairs(run_ranks) do
+                                try_send_check(
+                                    LocationData.run_equipment_location_id(k[1], ename, r),
+                                    "Run " .. k[1] .. ": Complete Run with " .. ename .. " on "
+                                        .. (LocationData.RANK_NAMES[r + 1] or "?")
+                                )
+                            end
+                        end
+                    end
                 end
             end
 
@@ -640,6 +703,7 @@ function M.install(ap_client)
             local gs_island = get_current_island()
             log("Portal from lobby detected — new run starting (GS island=" .. gs_island .. ")")
             island_counter = 0
+            biome_of_island = {}
             -- Signal ItemApply that we've left the lobby
             local ia_ok, ItemApply = pcall(require, "AP/ItemApply")
             if ia_ok and ItemApply then ItemApply.in_lobby = false end
@@ -666,6 +730,7 @@ function M.install(ap_client)
             GameThread.loop(2000, function()
                 log("Lobby re-apply: resetting island counter and re-spawning run items")
                 island_counter = 0
+                biome_of_island = {}
                 -- Signal ItemApply that we're back in the lobby (spawning is safe again)
                 local ia_ok, ItemApply = pcall(require, "AP/ItemApply")
                 if ia_ok and ItemApply then ItemApply.in_lobby = true end
@@ -768,6 +833,7 @@ end
 --- Reset the island counter (call on new run / return to lobby).
 function M.reset_island_counter()
     island_counter = 0
+    biome_of_island = {}
     log("Island counter reset")
 end
 

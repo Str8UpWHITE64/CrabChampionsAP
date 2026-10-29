@@ -46,6 +46,24 @@ class RunLength(Choice):
     default = 28
 
 
+class CheckLayout(Choice):
+    """How island checks are named and counted.
+      island_number: one check per island number, "Complete Island 15".
+      biome: one check per biome and island slot, "Complete Arctic Island 1",
+        "Reach Desert Shop".  The same biome and slot only counts once, so
+        repeating a biome in a run sends nothing new.  A full-length run also
+        gets a second set of checks for its second pass, "Complete Arctic
+        Island 1 (Loop 2)".
+
+    The number of checks is the same in both layouts.  With Biome Lock on,
+    a biome check needs that biome's Access item.  Rank and equipment checks
+    follow the same layout."""
+    display_name = "Check Layout"
+    option_island_number = 0
+    option_biome = 1
+    default = 0
+
+
 class WeaponsForCompletion(Range):
     """How many DIFFERENT weapons must be used to complete victory-rank runs
     before you can win.  E.g. with this set to 5, you'll need to finish the
@@ -670,8 +688,9 @@ class BiomeLock(DefaultOnToggle):
     run goes to a biome you do own instead, and repeats the same biome if it
     is the only one.
 
-    Island checks stay reachable with a single biome, because a repeated
-    biome keeps counting up the island numbers.
+    With the island number Check Layout, island checks stay reachable with a
+    single biome, because a repeated biome keeps counting up the island
+    numbers.  With the biome layout, each biome's checks need its Access item.
 
     Turn this off to play the game's normal biome order, with no Access items."""
     display_name = "Biome Lock"
@@ -698,6 +717,7 @@ class CrabChampsOption(PerGameCommonOptions):
     # Victory conditions
     required_rank: RequiredRank
     run_length: RunLength
+    check_layout: CheckLayout
     weapons_for_completion: WeaponsForCompletion
     melee_for_completion: MeleeForCompletion
     ability_for_completion: AbilityForCompletion

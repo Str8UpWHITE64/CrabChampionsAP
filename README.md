@@ -83,6 +83,15 @@ How many islands you must complete for a single run to count as finished. The ga
 
 > **Example:** With `run_length: short`, clearing all 28 islands in a single run counts as a completed run.
 
+#### `check_layout` (Default: island_number)
+How island checks are named and counted.
+- **island_number** = one check per island number, "Complete Island 15". Shop islands are "Reach Shop on Island 13".
+- **biome** = one check per biome and island slot, "Complete Arctic Island 1", "Reach Desert Shop". Rank and equipment checks follow the same names ("Complete Arctic Island 1 on Gold", "Complete Arctic Island 1 with Auto Rifle"). The same biome and slot only counts once, so repeating a biome in a run sends nothing new.
+
+A short run has exactly 28 biome checks of each kind. A full run adds a second set for its second pass through the biomes: "Complete Arctic Island 1 (Loop 2)". The number of checks is the same in both layouts. With `biome_lock` on, a biome check needs that biome's Access item. The goal counts run-level checks instead, "Complete Run with Auto Rifle on Gold", which go out when you clear the run's final island, whichever biome it is in. They need the item but no biome access.
+
+Seeds made before this option existed use island numbers.
+
 #### `weapons_for_completion` (Default: 5, Range: 1–21)
 How many different weapons you must complete a run with for victory. Each weapon requires its own full run.
 
@@ -186,7 +195,7 @@ The most specific "Complete Island X with Weapon on Rank" check is always kept.
 The game has four biomes (Tropical, Arctic, Desert and Volcanic), seven islands each. Normally a run walks through them in that order.
 
 #### `biome_lock` (Default: on)
-Your runs can only enter biomes you own the **Access** item for: Tropical Access, Arctic Access, Desert Access and Volcanic Access. You start with the Access item of your starting biome; the other three are in the multiworld. When the next biome of a run is one you do not own, the run goes to a biome you do own instead, and repeats the same biome if it is the only one. The island numbers keep counting up, so island checks stay reachable with a single biome. The game's loop at island 29 starts again in your starting biome.
+Your runs can only enter biomes you own the **Access** item for: Tropical Access, Arctic Access, Desert Access and Volcanic Access. You start with the Access item of your starting biome; the other three are in the multiworld. When the next biome of a run is one you do not own, the run goes to a biome you do own instead, and repeats the same biome if it is the only one. The island numbers keep counting up, so island-number checks stay reachable with a single biome; with the biome `check_layout`, each biome's checks need its Access item. The game's loop at island 29 starts again in your starting biome.
 
 Turn it off to play the game's normal biome order, with no Access items.
 
