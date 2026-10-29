@@ -84,10 +84,18 @@ def set_completion_rule(world: "CrabChampsWorld") -> None:
     # satisfiable without receiving an item.  Setup guarantees each
     # *_for_completion is at most the matching pool size, so the pool alone can
     # always satisfy the rule.  Island reachability needs no items.
-    victory = And(
-        HasFromListUnique(*world.pool_weapons, count=FromOption(WeaponsForCompletion)),
-        HasFromListUnique(*world.pool_melee, count=FromOption(MeleeForCompletion)),
-        HasFromListUnique(*world.pool_abilities, count=FromOption(AbilityForCompletion)),
-    )
+    # A category whose requirement is 0 adds no term: HasFromListUnique over an
+    # empty pool (melee/abilities forced to 0 pool items) never passes.
+    options = world.options
+    terms = [
+        HasFromListUnique(*pool, count=count)
+        for pool, needed, count in (
+            (world.pool_weapons, options.weapons_for_completion.value, FromOption(WeaponsForCompletion)),
+            (world.pool_melee, options.melee_for_completion.value, FromOption(MeleeForCompletion)),
+            (world.pool_abilities, options.ability_for_completion.value, FromOption(AbilityForCompletion)),
+        )
+        if needed > 0
+    ]
+    victory = And(*terms)
     world.set_rule(world.get_location("Victory"), victory)
     world.set_completion_rule(CanReachLocation("Victory"))

@@ -350,6 +350,8 @@ if ap_dir:
     problems += test_biome_checks_gen.run(ap_dir)
     import test_bronze_checks_gen
     problems += test_bronze_checks_gen.run(ap_dir)
+    import test_fuzz_regressions_gen
+    problems += test_fuzz_regressions_gen.run(ap_dir)
 else:
     print("generation checks skipped (set CRAB_AP_DIR to run them)")
 

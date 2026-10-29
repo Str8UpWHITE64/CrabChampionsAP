@@ -84,6 +84,10 @@ class CrabChampsWorld(World):
         self.start_biome: int = 0
 
     def generate_early(self):
+        # A tracker rebuilding this slot passes the random choices of the real
+        # seed back in (see interpret_slot_data); use them instead of rolling.
+        regen = getattr(self.multiworld, "re_gen_passthrough", {}).get(self.game)
+
         # Clamp max_rank >= required_rank
         if self.options.max_rank.value < self.options.required_rank.value:
             self.options.max_rank.value = self.options.required_rank.value
@@ -139,6 +143,10 @@ class CrabChampsWorld(World):
         self.pool_abilities = sorted(
             self.random.sample(ability_item_names, self.options.abilities_in_pool.value)
         ) if self.options.abilities_in_pool.value > 0 else []
+        if regen:
+            self.pool_weapons = list(regen["pool_weapons"])
+            self.pool_melee = list(regen["pool_melee"])
+            self.pool_abilities = list(regen["pool_abilities"])
 
         self.pool_weapon_set = frozenset(self.pool_weapons)
         self.pool_melee_set = frozenset(self.pool_melee)
@@ -146,46 +154,6 @@ class CrabChampsWorld(World):
         self.non_pool_weapons = [w for w in weapon_item_names if w not in self.pool_weapon_set]
         self.non_pool_melee = [m for m in melee_item_names if m not in self.pool_melee_set]
         self.non_pool_abilities = [a for a in ability_item_names if a not in self.pool_ability_set]
-
-        # Clamp starting_weapons < weapons_in_pool (must find at least one)
-        max_starting = max(0, self.options.weapons_in_pool.value - 1)
-        if self.options.starting_weapons.value > max_starting:
-            self.options.starting_weapons.value = max_starting
-
-        # A full weapon pool leaves no weapon available at the start, so at
-        # least one pool weapon must be precollected.
-        if (self.options.weapons_in_pool.value == len(weapon_item_names)
-                and self.options.starting_weapons.value < 1):
-            self.options.starting_weapons.value = 1
-
-        # Select and precollect starting weapons from the pool
-        self.starting_weapon_names = []
-        if self.options.starting_weapons.value > 0:
-            self.starting_weapon_names = self.random.sample(
-                self.pool_weapons, self.options.starting_weapons.value
-            )
-            for weapon_name in self.starting_weapon_names:
-                self.multiworld.push_precollected(self.create_item(weapon_name))
-
-        # Melee/abilities have no starting-count option, so a full pool gets
-        # exactly one random precollected item for the same reason.
-        self.starting_melee = []
-        self.starting_abilities = []
-        if self.options.melee_in_pool.value == len(melee_item_names):
-            self.starting_melee = self.random.sample(self.pool_melee, 1)
-            for melee_name in self.starting_melee:
-                self.multiworld.push_precollected(self.create_item(melee_name))
-        if self.options.abilities_in_pool.value == len(ability_item_names):
-            self.starting_abilities = self.random.sample(self.pool_abilities, 1)
-            for ability_name in self.starting_abilities:
-                self.multiworld.push_precollected(self.create_item(ability_name))
-
-        # Biome lock: the player starts with the Access item of the starting biome.
-        self.start_biome = 0
-        if self.options.biome_lock.value:
-            self.start_biome = self.options.starting_biome.value
-            self.multiworld.push_precollected(
-                self.create_item(biome_access_item_names[self.start_biome - 1]))
 
         equip_mode = self.options.equipment_check_mode.value  # 0=regular, 1=filler_only, 2=disabled
         minimize = bool(self.options.minimize_run_checks.value)
@@ -202,6 +170,60 @@ class CrabChampsWorld(World):
         )
         drop_redundant = minimize and have_equipment
         self._drop_redundant = drop_redundant
+
+        # Clamp starting_weapons < weapons_in_pool (must find at least one)
+        max_starting = max(0, self.options.weapons_in_pool.value - 1)
+        if self.options.starting_weapons.value > max_starting:
+            self.options.starting_weapons.value = max_starting
+
+        # A full weapon pool leaves no weapon available at the start, so at
+        # least one pool weapon must be precollected.
+        if (self.options.weapons_in_pool.value == len(weapon_item_names)
+                and self.options.starting_weapons.value < 1):
+            self.options.starting_weapons.value = 1
+
+        # A free check is one that needs no item.  Without the unranked island
+        # checks (dropped by minimize when extra ranks are on) almost every
+        # check needs a pool weapon, so a seed that starts with none can have
+        # nowhere to put its first one.
+        if (self.options.extra_rank_checks.value != 0 and drop_redundant
+                and self.options.starting_weapons.value < 1):
+            self.options.starting_weapons.value = 1
+
+        # Select and precollect starting weapons from the pool
+        self.starting_weapon_names = []
+        if self.options.starting_weapons.value > 0:
+            self.starting_weapon_names = self.random.sample(
+                self.pool_weapons, self.options.starting_weapons.value
+            )
+            if regen:
+                self.starting_weapon_names = list(regen["starting_weapon_names"])
+            for weapon_name in self.starting_weapon_names:
+                self.multiworld.push_precollected(self.create_item(weapon_name))
+
+        # Melee/abilities have no starting-count option, so a full pool gets
+        # exactly one random precollected item for the same reason.
+        self.starting_melee = []
+        self.starting_abilities = []
+        if self.options.melee_in_pool.value == len(melee_item_names):
+            self.starting_melee = self.random.sample(self.pool_melee, 1)
+            if regen:
+                self.starting_melee = list(regen["starting_melee"])
+            for melee_name in self.starting_melee:
+                self.multiworld.push_precollected(self.create_item(melee_name))
+        if self.options.abilities_in_pool.value == len(ability_item_names):
+            self.starting_abilities = self.random.sample(self.pool_abilities, 1)
+            if regen:
+                self.starting_abilities = list(regen["starting_abilities"])
+            for ability_name in self.starting_abilities:
+                self.multiworld.push_precollected(self.create_item(ability_name))
+
+        # Biome lock: the player starts with the Access item of the starting biome.
+        self.start_biome = 0
+        if self.options.biome_lock.value:
+            self.start_biome = regen["start_biome"] if regen else self.options.starting_biome.value
+            self.multiworld.push_precollected(
+                self.create_item(biome_access_item_names[self.start_biome - 1]))
 
         # Always-on categories
         self.enabled_location_categories.add(CrabChampsLocationCategory.ISLAND)
@@ -255,6 +277,8 @@ class CrabChampsWorld(World):
                        if self.options.greed_item_mode.value == 2
                        else frozenset())
             self.pickup_subsets = select_pickup_subsets(self.random, exclude_names=exclude)
+            if regen:
+                self.pickup_subsets = {k: list(v) for k, v in regen["pickup_subsets"].items()}
             self._allowed_pickup_names = {
                 n for names in self.pickup_subsets.values() for n in names
             }
@@ -750,6 +774,21 @@ class CrabChampsWorld(World):
 
         set_all_rules(self)
 
+    @staticmethod
+    def interpret_slot_data(slot_data: Dict[str, object]) -> Dict[str, object]:
+        """The random choices a rebuild needs to match this seed."""
+        options = slot_data["options"]
+        return {
+            "pool_weapons": options["pool_weapons"],
+            "pool_melee": options["pool_melee"],
+            "pool_abilities": options["pool_abilities"],
+            "starting_weapon_names": options["starting_weapon_names"],
+            "starting_melee": options["starting_melee"],
+            "starting_abilities": options["starting_abilities"],
+            "pickup_subsets": options["pickup_subsets"],
+            "start_biome": options["starting_biome"],
+        }
+
     def fill_slot_data(self) -> Dict[str, object]:
         # NOTE: We intentionally do NOT include `locationsId`/`itemsId` arrays
         # in slot_data.  The Lua client gets the authoritative location list
@@ -790,6 +829,9 @@ class CrabChampsWorld(World):
                 "pool_weapons": self.pool_weapons,
                 "pool_melee": self.pool_melee,
                 "pool_abilities": self.pool_abilities,
+                "starting_weapon_names": self.starting_weapon_names,
+                "starting_melee": self.starting_melee,
+                "starting_abilities": self.starting_abilities,
                 "equipment_check_mode": self.options.equipment_check_mode.value,
                 "guaranteed_items": self.options.guaranteed_items.value,
                 "greed_item_mode": self.options.greed_item_mode.value,
