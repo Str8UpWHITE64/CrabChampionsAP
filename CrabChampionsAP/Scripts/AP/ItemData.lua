@@ -215,6 +215,68 @@ add(983, M.CATEGORY.BIOME, "Volcanic Access")
 add(1000, M.CATEGORY.EVENT, "Victory")
 
 -- ---------------------------------------------------------------
+-- ID layout of the connected seed
+--
+-- The table above is the current layout. A seed made with an older layout
+-- (see IdLayouts.lua) numbers its items by that layout's lists, so
+-- set_layout swaps BY_CC_CODE for a table built from them.
+-- ---------------------------------------------------------------
+M.CURRENT_BY_CC_CODE = M.BY_CC_CODE
+M.id_layout = nil   -- nil until a seed sets it: the current layout
+
+local KIND_CAT = {
+    perk = M.CATEGORY.PERK, relic = M.CATEGORY.RELIC,
+    weapon = M.CATEGORY.WEAPON, ability = M.CATEGORY.ABILITY, melee = M.CATEGORY.MELEE,
+    weapon_mod = M.CATEGORY.WEAPON_MOD, melee_mod = M.CATEGORY.MELEE_MOD,
+    ability_mod = M.CATEGORY.ABILITY_MOD,
+}
+-- cc_code of each kind's first entry, the same in every layout
+local KIND_BASE = {
+    perk = 1, relic = 200, weapon = 300, ability = 400, melee = 500,
+    weapon_mod = 600, melee_mod = 700, ability_mod = 800,
+}
+
+local function build_layout_table(layout)
+    local t = {}
+    for kind, base in pairs(KIND_BASE) do
+        local moved = layout.moved and layout.moved[kind] or {}
+        local removed = layout.removed and layout.removed[kind] or {}
+        for i, name in ipairs(layout[kind]) do
+            local cat = KIND_CAT[kind]
+            -- An item the game moved to another kind gives the game's item.
+            if moved[name] then cat = KIND_CAT[moved[name]] end
+            -- An item the game no longer has can't be given.
+            if removed[name] then cat = M.CATEGORY.SKIP end
+            t[base + i - 1] = { cat = cat, name = name }
+        end
+    end
+    -- Filler, slots and Victory are the same in every layout. Traps, Perk
+    -- Boost and biome access (960-983) only exist in the current one.
+    for code, entry in pairs(M.CURRENT_BY_CC_CODE) do
+        if code >= 900 and (layout.extra_items or code < 960 or code >= 1000) then
+            t[code] = entry
+        end
+    end
+    return t
+end
+
+--- Use the item table of a seed's ID layout. Returns false for a layout this
+--- client can't read (the table is left as it was).
+---@param layout number|nil slot_data.id_layout (nil = 1)
+function M.set_layout(layout)
+    local IdLayouts = require("AP/IdLayouts")
+    layout = tonumber(layout) or 1
+    if not IdLayouts.supported(layout) then return false end
+    M.id_layout = layout
+    if layout == IdLayouts.CURRENT then
+        M.BY_CC_CODE = M.CURRENT_BY_CC_CODE
+    else
+        M.BY_CC_CODE = build_layout_table(IdLayouts[layout])
+    end
+    return true
+end
+
+-- ---------------------------------------------------------------
 -- Name matching
 --
 -- UE4SS da.Name returns the UObject FName (e.g. "DA_Perk_Driller"),

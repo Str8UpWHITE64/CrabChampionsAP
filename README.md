@@ -52,6 +52,14 @@ The release zip includes [UE4SS v3.0.1](https://github.com/UE4SS-RE/RE-UE4SS/rel
 4. Launch the game! Press **F4** to open the connection panel, enter your server details, and press **F3** to connect.
    - Your connection details are saved automatically after a successful connection, so you only need to enter them once.
 
+### Worlds made with older versions
+
+Multiworlds made with apworld 1.4.0 or earlier still play with this mod, with the same checks and items as before. The game's 2.0 update changed a few of their items:
+
+- **All You Can Eat** is a relic now. The seed's All You Can Eat gives the relic, and picking up the relic sends the seed's All You Can Eat check.
+- **Aura Explosion** is gone from the game. Receiving it gives nothing, and its pickup check is sent as soon as you connect, since it can no longer be found.
+- Items the update added are not part of an older seed. They are ordinary pickups there: they have no check and you keep them, and the new weapons, melee and abilities are unlocked like non-pool equipment.
+
 ## Configuration Options
 
 These options are set in your Archipelago YAML configuration file. They are grouped below in the same order they appear in the YAML template.

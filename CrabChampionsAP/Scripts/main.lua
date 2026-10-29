@@ -660,9 +660,10 @@ local function on_slot_connected(slot_data)
                     and LocationData._has_pickup_subsets then
                 local total = 0
                 for kind, all_names in pairs(LocationData.PICKUP_NAMES_BY_KIND or {}) do
-                    local subset = LocationData.pickup_subsets[kind] or {}
                     local non_chosen = {}
                     for _, name in ipairs(all_names) do
+                        -- The subset lists the item under its kind in the seed.
+                        local subset = LocationData.pickup_subsets[LocationData.seed_kind(kind, name)] or {}
                         if not subset[name] then
                             non_chosen[#non_chosen + 1] = name
                         end
@@ -671,6 +672,17 @@ local function on_slot_connected(slot_data)
                 end
                 clog("INFO", "  Limit pickup locations: pre-allowed "
                     .. total .. " non-subset items in inventory")
+            end
+
+            -- 3. Items the game added after the seed's ID layout: the seed
+            --    has no item or check for them (empty for current seeds)
+            local untracked = 0
+            for kind in pairs(LocationData.PICKUP_NAMES_BY_KIND or {}) do
+                untracked = untracked + pre_allow(kind, LocationData.untracked_pickup_names(kind))
+            end
+            if untracked > 0 then
+                clog("INFO", "  Seed ID layout " .. tostring(LocationData.id_layout) .. ": pre-allowed "
+                    .. untracked .. " items the seed doesn't have")
             end
         end
     end
@@ -787,6 +799,18 @@ local function on_slot_connected(slot_data)
         end
         return true  -- run once
     end)
+
+    -- An older seed can have pickup checks for items the game no longer has
+    -- (Aura Explosion in ID layout 1). They can't be found in a run, so they
+    -- are sent now.
+    if LocationData.pickup_checks then
+        for _, lid in ipairs(LocationData.unfindable_location_ids()) do
+            if LocationData.is_valid_location_id(lid) and not APClient:is_location_checked(lid) then
+                clog("STATUS", "Sending check " .. lid .. ": its item is no longer in the game")
+                APClient:send_check(lid)
+            end
+        end
+    end
 
     -- Progressive inventory slots: lock slots to starting counts
     local sl = _G.AP and _G.AP.SlotLock or nil
@@ -1265,7 +1289,7 @@ RegisterKeyBind(Key.F9, GameThread.signal(function()
             return (name:gsub("%s*%b()%s*$", ""):gsub("'", ""):gsub("%s+", ""):lower())
         end
         local known = {}
-        for _, entry in pairs(ItemData.BY_CC_CODE) do
+        for _, entry in pairs(ItemData.CURRENT_BY_CC_CODE or ItemData.BY_CC_CODE) do
             known[name_key(entry.name)] = true
         end
 

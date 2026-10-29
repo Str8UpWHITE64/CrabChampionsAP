@@ -22,8 +22,8 @@ local function log(msg) print("[CrabAP-LocData] " .. tostring(msg)) end
 -- ---------------------------------------------------------------
 M.BASE_ID = 1890000
 M.TABLE_OFFSET = 12000
--- Must match ID_LAYOUT in Locations.py. APClient refuses seeds from any
--- other layout, since their item and location IDs mean different things.
+-- Must match ID_LAYOUT in Locations.py. Seeds of older layouts are read with
+-- their own lists (IdLayouts.lua, set_layout); APClient refuses any other.
 M.ID_LAYOUT = 4
 
 M.REGION = {
@@ -323,6 +323,8 @@ function M.is_pickup_location_excluded(kind, item_name)
     if not item_name or not kind then return false end
     -- pickup_checks disabled → no pickup locations exist at all
     if not M.pickup_checks then return true end
+    -- The seed's options name the item under its kind in the seed.
+    kind = M.seed_kind(kind, item_name)
     -- Greed items excluded when greed_item_mode == skip (2)
     -- Apworld _should_include_location only excludes for perks/relics/
     -- melee_mods (matches GREED_ITEM_NAMES coverage).
@@ -517,30 +519,126 @@ local position_maps = {
 }
 
 -- ---------------------------------------------------------------
+-- ID layout of the connected seed
+--
+-- The lists above are what the game has. A seed's IDs are positions in the
+-- lists of its own layout (IdLayouts.lua), which set_layout selects. Until
+-- a seed sets one, the current layout is used.
+-- ---------------------------------------------------------------
+
+local current_lists = {
+    perk = perk_names, relic = relic_names,
+    weapon_mod = weapon_mod_names, melee_mod = melee_mod_names, ability_mod = ability_mod_names,
+    weapon = weapon_names, melee = melee_names, ability = ability_names,
+}
+local id_lists = current_lists     -- kind -> the seed's name list
+local id_maps = position_maps      -- kind -> key -> 0-based position in the seed's list
+local id_moved = {}                -- game kind -> key -> the seed's kind for that item
+local id_removed = {}              -- { kind, name } the seed has but the game no longer does
+M.id_layout = nil
+
+--- Use the ID lists of a seed's layout. Returns false for a layout this
+--- client can't read (the lists are left as they were).
+---@param layout number|nil slot_data.id_layout (nil = 1)
+function M.set_layout(layout)
+    local IdLayouts = require("AP/IdLayouts")
+    layout = tonumber(layout) or 1
+    if not IdLayouts.supported(layout) then return false end
+    M.id_layout = layout
+    id_moved, id_removed = {}, {}
+    if layout == IdLayouts.CURRENT then
+        id_lists, id_maps = current_lists, position_maps
+        return true
+    end
+    local L = IdLayouts[layout]
+    id_lists, id_maps = {}, {}
+    for kind in pairs(current_lists) do
+        id_lists[kind] = L[kind]
+        id_maps[kind] = build_position_map(L[kind])
+    end
+    for seed_kind, names in pairs(L.moved or {}) do
+        for name, game_kind in pairs(names) do
+            id_moved[game_kind] = id_moved[game_kind] or {}
+            id_moved[game_kind][name_to_key(name)] = seed_kind
+        end
+    end
+    for kind, names in pairs(L.removed or {}) do
+        for name in pairs(names) do id_removed[#id_removed + 1] = { kind, name } end
+    end
+    return true
+end
+
+--- The kind a game item has in the seed: differs only for an item the game
+--- has moved to another kind since the seed's layout.
+---@param kind string game kind ("perk", "relic", ...)
+---@param name string item name or name key
+function M.seed_kind(kind, name)
+    local moved = id_moved[kind]
+    return (moved and name and moved[name_to_key(name)]) or kind
+end
+
+--- Location ID of picking up a game item, or nil when the seed's layout has
+--- no such pickup. Also returns the item's kind in the seed.
+---@param kind string game kind
+---@param name string item name or name key
+function M.pickup_location_id(kind, name)
+    if not kind or not name then return nil end
+    local key = name_to_key(name)
+    local seed_kind = M.seed_kind(kind, key)
+    local region = M.REGION[seed_kind]
+    local position = id_maps[seed_kind] and id_maps[seed_kind][key]
+    if not region or not position then return nil, seed_kind end
+    return M.BASE_ID + (M.TABLE_OFFSET * region) + position, seed_kind
+end
+
+--- Pickup checks of the seed whose item the game no longer has, so they
+--- can't be found in a run.
+function M.unfindable_location_ids()
+    local ids = {}
+    for _, entry in ipairs(id_removed) do
+        local kind, name = entry[1], entry[2]
+        local position = id_maps[kind] and id_maps[kind][name_to_key(name)]
+        if position then
+            ids[#ids + 1] = M.BASE_ID + (M.TABLE_OFFSET * M.REGION[kind]) + position
+        end
+    end
+    return ids
+end
+
+--- Game items of a kind that have no pickup check in the seed's layout at
+--- all (added to the game after the seed's layout). Empty for the current layout.
+---@param kind string game kind
+function M.untracked_pickup_names(kind)
+    local names = {}
+    for _, name in ipairs(current_lists[kind] or {}) do
+        if not M.pickup_location_id(kind, name) then names[#names + 1] = name end
+    end
+    return names
+end
+
+-- ---------------------------------------------------------------
 -- Pickup locations (not ranked)
 -- ---------------------------------------------------------------
 
+--- Location ID of picking up a DA, its game kind, and its kind in the seed.
 function M.from_da(full_name)
     local kind = classify_da(full_name)
     if not kind then return nil, nil end
 
-    local region = M.REGION[kind]
-    if not region then return nil, nil end
-
     local key = da_name_to_key(full_name)
     if not key then return nil, nil end
 
-    local pos_map = position_maps[kind]
-    if not pos_map then return nil, nil end
-
-    local position = pos_map[key]
-    if not position then
-        log("WARN: No position for key='" .. key .. "' kind=" .. kind)
+    local location_id, seed_kind = M.pickup_location_id(kind, key)
+    if not location_id then
+        if id_maps == position_maps then
+            log("WARN: No position for key='" .. key .. "' kind=" .. kind)
+        else
+            log("No check for key='" .. key .. "' kind=" .. kind .. " in ID layout " .. tostring(M.id_layout))
+        end
         return nil, kind
     end
 
-    local location_id = M.BASE_ID + (M.TABLE_OFFSET * region) + position
-    return location_id, kind
+    return location_id, kind, seed_kind
 end
 
 function M.display_name(kind, full_name)
@@ -707,10 +805,9 @@ function M.open_pickup_keys(is_checked)
     local keys = {}
     if not M.pickup_checks then return keys end
     for _, kind in ipairs(GATE_KINDS) do
-        local region = M.REGION[kind]
-        for i, name in ipairs(gate_names[kind]) do
-            local location_id = M.BASE_ID + (M.TABLE_OFFSET * region) + (i - 1)
-            if M.is_valid_location_id(location_id)
+        for _, name in ipairs(gate_names[kind]) do
+            local location_id = M.pickup_location_id(kind, name)
+            if location_id and M.is_valid_location_id(location_id)
                     and not M.is_pickup_location_excluded(kind, name)
                     and not is_checked(location_id) then
                 keys[#keys + 1] = GATE_CLASS[kind] .. ":" .. name_to_key(name)
@@ -795,51 +892,51 @@ end
 function M.weapon_run_location_id(island_num, weapon_full_name, rank)
     local key = da_name_to_key(weapon_full_name)
     if not key then return nil end
-    local idx = position_maps.weapon and position_maps.weapon[key]
+    local idx = id_maps.weapon and id_maps.weapon[key]
     if not idx then return nil end
-    return equipment_run_id(region_of("weapon_run"), #weapon_names, island_num, idx, rank)
+    return equipment_run_id(region_of("weapon_run"), #id_lists.weapon, island_num, idx, rank)
 end
 
 --- Get location ID for melee run.
 function M.melee_run_location_id(island_num, melee_full_name, rank)
     local key = da_name_to_key(melee_full_name)
     if not key then return nil end
-    local idx = position_maps.melee and position_maps.melee[key]
+    local idx = id_maps.melee and id_maps.melee[key]
     if not idx then return nil end
-    return equipment_run_id(region_of("melee_run"), #melee_names, island_num, idx, rank)
+    return equipment_run_id(region_of("melee_run"), #id_lists.melee, island_num, idx, rank)
 end
 
 --- Get location ID for ability run.
 function M.ability_run_location_id(island_num, ability_full_name, rank)
     local key = da_name_to_key(ability_full_name)
     if not key then return nil end
-    local idx = position_maps.ability and position_maps.ability[key]
+    local idx = id_maps.ability and id_maps.ability[key]
     if not idx then return nil end
-    return equipment_run_id(region_of("ability_run"), #ability_names, island_num, idx, rank)
+    return equipment_run_id(region_of("ability_run"), #id_lists.ability, island_num, idx, rank)
 end
 
 --- Get location ID for weapon run by clean name (e.g. "Auto Rifle").
 function M.weapon_run_location_id_by_name(island_num, weapon_name, rank)
     local key = name_to_key(weapon_name)
-    local idx = position_maps.weapon and position_maps.weapon[key]
+    local idx = id_maps.weapon and id_maps.weapon[key]
     if not idx then return nil end
-    return equipment_run_id(region_of("weapon_run"), #weapon_names, island_num, idx, rank)
+    return equipment_run_id(region_of("weapon_run"), #id_lists.weapon, island_num, idx, rank)
 end
 
 --- Get location ID for melee run by clean name (e.g. "Hammer").
 function M.melee_run_location_id_by_name(island_num, melee_name, rank)
     local key = name_to_key(melee_name)
-    local idx = position_maps.melee and position_maps.melee[key]
+    local idx = id_maps.melee and id_maps.melee[key]
     if not idx then return nil end
-    return equipment_run_id(region_of("melee_run"), #melee_names, island_num, idx, rank)
+    return equipment_run_id(region_of("melee_run"), #id_lists.melee, island_num, idx, rank)
 end
 
 --- Get location ID for ability run by clean name (e.g. "Grenade").
 function M.ability_run_location_id_by_name(island_num, ability_name, rank)
     local key = name_to_key(ability_name)
-    local idx = position_maps.ability and position_maps.ability[key]
+    local idx = id_maps.ability and id_maps.ability[key]
     if not idx then return nil end
-    return equipment_run_id(region_of("ability_run"), #ability_names, island_num, idx, rank)
+    return equipment_run_id(region_of("ability_run"), #id_lists.ability, island_num, idx, rank)
 end
 
 --- Get display name for an equipment DA (for logging).

@@ -836,6 +836,12 @@ function M.apply_item(ap_item_id)
         return
     end
 
+    -- An older seed's item that the game no longer has
+    if info.cat == CAT.SKIP then
+        log("Received " .. info.name .. ", which is no longer in the game — nothing to give")
+        return
+    end
+
     -- Slot items (progressive inventory slots)
     if info.cat == CAT.SLOT then
         local slot_map = {

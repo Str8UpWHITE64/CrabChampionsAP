@@ -36,8 +36,10 @@ package.preload["AP/APClientWrapper"] = function() return {} end
 package.preload["AP/APConfig"] = function() return { load = function() return {} end } end
 package.preload["AP/LocationData"] = function()
     return { ID_LAYOUT = 1, set_location_allowlist = function() end,
+             set_layout = function() return true end,
              is_valid_location_id = function() return true end }
 end
+package.preload["AP/ItemData"] = function() return { set_layout = function() return true end } end
 handlers = {}
 fake = setmetatable({}, { __index = function(_, k)
     if k:match("^set_.*_handler$") then

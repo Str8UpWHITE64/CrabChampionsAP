@@ -123,7 +123,7 @@ expect("weapon mod open", open_keys["CrabWeaponModDA:accelerating" + "shot"], Tr
 expect("melee mod open", open_keys["CrabMeleeModDA:potentclaws"], True)
 expect("ability mod open", open_keys["CrabAbilityModDA:bigability"], True)
 
-charger_id, kind = LocationData.from_da("CrabPerkDA /Game/Data/DA_Perk_Charger.DA_Perk_Charger")
+charger_id, kind, _ = LocationData.from_da("CrabPerkDA /Game/Data/DA_Perk_Charger.DA_Perk_Charger")
 expect("charger kind", kind, "perk")
 
 # a sent check leaves the set on the next refresh

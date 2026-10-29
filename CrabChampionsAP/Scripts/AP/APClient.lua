@@ -259,18 +259,21 @@ function Client:_register_handlers()
         slot_data = slot_data or {}
         local LocationData = require("AP/LocationData")
 
-        -- Item and location IDs come from this mod's tables, so a seed made
-        -- for a different layout would apply the wrong items and send the
-        -- wrong checks. Seeds from before the field existed are layout 1.
+        -- Item and location IDs come from this mod's tables, so they are read
+        -- with the lists of the seed's own layout (AP/IdLayouts.lua). A seed
+        -- of a layout the mod can't read would apply the wrong items and send
+        -- the wrong checks. Seeds from before the field existed are layout 1.
         local layout = tonumber(slot_data.id_layout) or 1
-        if layout ~= LocationData.ID_LAYOUT then
+        local ItemData = require("AP/ItemData")
+        if not (LocationData.set_layout(layout) and ItemData.set_layout(layout)) then
             self._layout_mismatch = true
-            local reason = "seed needs ID layout " .. layout .. ", this mod has "
+            local reason = "seed needs ID layout " .. layout .. ", this mod reads layouts 1 and "
                 .. LocationData.ID_LAYOUT .. " - install the mod version that matches the seed"
             log("ERROR: " .. reason)
             self:queue_command("disconnect", { reason = reason })
             return
         end
+        log("Seed ID layout " .. layout)
 
         -- Checks queued while disconnected belong to the seed and slot they
         -- were made in; drop them when connecting to a different one.
