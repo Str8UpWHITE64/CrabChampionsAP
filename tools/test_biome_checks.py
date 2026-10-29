@@ -208,7 +208,7 @@ check(LD.check_index(30, 1) == 2, "short run reached loop 2")
 SCRIPTS = (REPO / "CrabChampionsAP/Scripts").as_posix()
 
 
-def play(options, clears, start_biome_label=1):
+def play(options, clears, difficulty=1):
     """Run `clears` -- a list of (island, biome, hook) -- through the real PickupWatch and return the location
     IDs it sent, in order. hook is 'clear' or 'portal'."""
     rt = LuaRuntime(unpack_returned_tuples=True)
@@ -231,6 +231,7 @@ def play(options, clears, start_biome_label=1):
                    send_check = function(_, id) checked[id] = true; sent[#sent + 1] = id end,
                    send_victory = function() end }
     """)
+    rt.execute("gs.Difficulty = %d" % difficulty)  # the game enum: 1 = Bronze, 3 = Gold
     rt.execute("BL = require('AP/BiomeLock'); BL.game.gs = function() return gs end")
     rt.execute("require('AP/LocationData').configure({ options = %s })" % options)
     rt.execute("require('AP/PickupWatch').install(client)")
@@ -286,6 +287,57 @@ for opts in ("{ run_length = 28 }", "{ run_length = 28, check_layout = 0 }"):
     check(1890001 in got and 1890007 in got and not any(i >= B for i in got), f"island layout sent {got}")
 
 # --------------------------------------------------------------------------
+# No Bronze checks: the plain checks are the Bronze checks. The Bronze IDs stay computable for old seeds.
+# --------------------------------------------------------------------------
+BRONZE_IDS = {i for n, i in new_ids.items() if n.endswith(" on Bronze")}
+check(len(BRONZE_IDS) > 1000, "Bronze IDs are gone from the ID table")
+configure(None)
+check(LD.bronze_checks is True, "seeds without bronze_checks must keep Bronze checks")
+check(LD.island_location_id(5, 0) == new_ids["Complete Island 5 on Bronze"], "Bronze island ID not computable")
+check(LD.weapon_run_location_id_by_name(5, "Auto Rifle", 0) == new_ids["Complete Island 5 with Auto Rifle on Bronze"],
+      "Bronze equipment ID not computable")
+check(LD.rank_run_location_id(0) == new_ids["Complete Run on Bronze"], "Bronze run ID not computable")
+# An old seed (no flag) still sends its Bronze checks.
+got = play("{ run_length = 28 }", [(1, 1, "clear")])
+check(1890001 in got and (BRONZE_IDS & set(got)), f"old seed lost its Bronze checks: {got}")
+
+NB = "bronze_checks = false, run_length = 28"
+for layout in ("", ", check_layout = 1"):
+    # Required Bronze, no extra ranks: only the plain checks.
+    got = play("{ %s%s }" % (NB, layout), [(1, 1, "clear"), (6, 1, "portal"), (28, 4, "clear")])
+    check(got and not (BRONZE_IDS & set(got)), f"Bronze ID sent for a new seed{layout}: {got}")
+    # Extra ranks at Gold: Gold and the plain checks, never Bronze, with and without cascade.
+    for cascade in ("false", "true"):
+        opts = ("{ %s%s, required_rank = 2, max_rank = 3, extra_ranked_island_checks = true, "
+                "cascade_ranked_checks = %s }" % (NB, layout, cascade))
+        got = play(opts, [(1, 1, "clear"), (28, 4, "clear")], difficulty=3)
+        check(not (BRONZE_IDS & set(got)), f"Bronze ID sent at Gold{layout} cascade={cascade}: {got}")
+        check(len(got) == len(set(got)), f"duplicate sends at Gold{layout} cascade={cascade}")
+        check(not any("on Bronze" in l for l in play.log), f"log labels a plain check as Bronze{layout} cascade={cascade}")
+        plain_isl = 1890001 if not layout else B + 1
+        check(plain_isl in got, f"plain island check missing at Gold{layout}: {got}")
+    # Required Gold without extra ranks: plain plus Gold.
+    got = play("{ %s%s, required_rank = 2, max_rank = 2 }" % (NB, layout), [(1, 1, "clear")], difficulty=3)
+    check(not (BRONZE_IDS & set(got)) and len(got) >= 2, f"Gold goal sent {got}")
+
+# The goal: Bronze with no Bronze checks looks at the plain final-island check (any biome in the biome layout).
+configure(None, 28)
+LD.configure(lua.table_from({"options": lua.table_from({"run_length": 28, "bronze_checks": False})}))
+seen = []
+LD.final_run_checked(LD.weapon_run_location_id_by_name, "Auto Rifle", 0, lambda i: seen.append(i) or False)
+check(seen == [new_ids["Complete Island 28 with Auto Rifle"]], f"Bronze goal looked at {seen}")
+LD.configure(lua.table_from({"options": lua.table_from({"run_length": 28, "bronze_checks": False, "check_layout": 1})}))
+seen = []
+LD.final_run_checked(LD.weapon_run_location_id_by_name, "Auto Rifle", 0, lambda i: seen.append(i) or False)
+want = sorted(new_ids[f"{locs.biome_check_prefix(k)} with Auto Rifle"] for k in (6, 13, 20, 27))
+check(sorted(seen) == want, f"biome Bronze goal looked at {seen}, wanted {want}")
+# With Bronze checks (old seeds) the goal still looks at the Bronze check.
+LD.configure(lua.table_from({"options": lua.table_from({"run_length": 28})}))
+seen = []
+LD.final_run_checked(LD.weapon_run_location_id_by_name, "Auto Rifle", 0, lambda i: seen.append(i) or False)
+check(seen == [new_ids["Complete Island 28 with Auto Rifle on Bronze"]], f"old Bronze goal looked at {seen}")
+
+# --------------------------------------------------------------------------
 # Generation (needs an Archipelago copy)
 # --------------------------------------------------------------------------
 ap_dir = os.environ.get("CRAB_AP_DIR")
@@ -296,6 +348,8 @@ if ap_dir:
     sys.path.insert(0, str(Path(__file__).parent))
     import test_biome_checks_gen
     problems += test_biome_checks_gen.run(ap_dir)
+    import test_bronze_checks_gen
+    problems += test_bronze_checks_gen.run(ap_dir)
 else:
     print("generation checks skipped (set CRAB_AP_DIR to run them)")
 

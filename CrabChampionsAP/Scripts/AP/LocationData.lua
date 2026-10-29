@@ -73,6 +73,9 @@ M.extra_ranked_island_checks = false
 M.cascade_ranked_checks = false
 M.max_rank = 0
 M.required_rank = 0
+-- Whether "... on Bronze" locations exist. New seeds have none (the plain
+-- checks are the Bronze checks); seeds made before that still do.
+M.bronze_checks = true
 M.run_length = 28
 M.check_layout = 0          -- 0=island_number, 1=biome
 M.biome_layout = false
@@ -170,6 +173,7 @@ function M.configure(slot_data)
     M.cascade_ranked_checks = opts.cascade_ranked_checks or false
     M.max_rank = tonumber(opts.max_rank) or 0
     M.required_rank = tonumber(opts.required_rank) or 0
+    M.bronze_checks = opts.bronze_checks ~= false
     M.run_length = tonumber(opts.run_length) or 28
     M.check_layout = tonumber(opts.check_layout) or 0
     M.biome_layout = M.check_layout == 1
@@ -247,6 +251,7 @@ function M.configure(slot_data)
         .. " cascade=" .. tostring(M.cascade_ranked_checks)
         .. " max_rank=" .. tostring(M.max_rank)
         .. " required_rank=" .. tostring(M.required_rank)
+        .. " bronze_checks=" .. tostring(M.bronze_checks)
         .. " run_length=" .. tostring(M.run_length)
         .. " check_layout=" .. tostring(M.check_layout)
         .. " equip_mode=" .. tostring(M.equipment_check_mode)
@@ -572,6 +577,21 @@ local function region_of(kind)
     return M.REGION[kind]
 end
 
+--- Whether a rank has location checks of its own. Without Bronze checks the
+--- plain (unranked) checks stand in for Bronze.
+---@param rank number 0-based rank
+function M.rank_is_separate(rank)
+    return (tonumber(rank) or 0) > 0 or M.bronze_checks
+end
+
+--- The rank argument the ID functions take for a rank tier: the rank itself,
+--- or nil (the plain check) for Bronze when there are no Bronze checks.
+---@param rank number 0-based rank
+function M.tier_rank(rank)
+    if M.rank_is_separate(rank) then return rank end
+    return nil
+end
+
 --- The number the island/equipment ID functions take for a cleared island.
 --- Island layout: the island number. Biome layout: the biome check index
 --- (1..56) from the biome (game number 1-4) the island was cleared in, or nil
@@ -632,7 +652,19 @@ end
 --- final-island check; the biome layout at the run-level check.
 function M.final_run_checked(loc_id_fn, name, rank, is_checked)
     local lid
-    if M.biome_layout then
+    if not M.rank_is_separate(rank) then
+        -- Bronze without Bronze checks: the final island's plain check. In the
+        -- biome layout the final island can be in any biome.
+        if M.biome_layout then
+            for biome = 1, 4 do
+                local idx = M.check_index(M.run_length, biome)
+                local id = idx and loc_id_fn(idx, name, nil)
+                if id and is_checked(id) == true then return true end
+            end
+            return false
+        end
+        lid = loc_id_fn(M.run_length, name, nil)
+    elseif M.biome_layout then
         local kind = (loc_id_fn == M.weapon_run_location_id_by_name and "weapon")
             or (loc_id_fn == M.melee_run_location_id_by_name and "melee")
             or (loc_id_fn == M.ability_run_location_id_by_name and "ability")

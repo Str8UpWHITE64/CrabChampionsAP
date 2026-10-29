@@ -10,7 +10,7 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 
 - **Equipment Randomization** — Weapons, melee weapons, and abilities are locked behind the multiworld item pool. You unlock them as other players find your items.
 - **Location Checks** — Completing islands, finishing runs at specific ranks, and using specific equipment all count as checks that send items to other players.
-- **Ranked Difficulty Tiers** — Supports all 8 difficulty ranks from Bronze through Prismatic, with configurable check ranges.
+- **Ranked Difficulty Tiers** — Supports all 8 difficulty ranks from Bronze through Prismatic, with configurable check ranges. Bronze has no checks of its own, since every clear is at least Bronze: the plain checks are the Bronze checks.
 - **Cascade Mode** — Completing an island at a higher rank can automatically count for all lower ranks.
 - **Biome Lock** — Runs can only enter biomes you own the Access item for, and start in the biome you choose.
 - **Death Link** — Optional synchronized death across all connected players.
@@ -76,6 +76,8 @@ The minimum difficulty rank you must complete a run at for it to count toward vi
 
 > **Example:** With `required_rank: gold`, you need at least 2 difficulty modifier points active when you finish a run for it to count.
 
+> **Note:** There are no "on Bronze" checks. Every clear is at least Bronze, so with `required_rank: bronze` the goal uses the plain checks ("Complete Island 15", "Complete Island 15 with Auto Rifle").
+
 #### `run_length` (Default: short)
 How many islands you must complete for a single run to count as finished. The game loops islands in cycles of 28.
 - **short** = 28 islands (1 cycle)
@@ -88,7 +90,7 @@ How island checks are named and counted.
 - **island_number** = one check per island number, "Complete Island 15". Shop islands are "Reach Shop on Island 13".
 - **biome** = one check per biome and island slot, "Complete Arctic Island 1", "Reach Desert Shop". Rank and equipment checks follow the same names ("Complete Arctic Island 1 on Gold", "Complete Arctic Island 1 with Auto Rifle"). The same biome and slot only counts once, so repeating a biome in a run sends nothing new.
 
-A short run has exactly 28 biome checks of each kind. A full run adds a second set for its second pass through the biomes: "Complete Arctic Island 1 (Loop 2)". The number of checks is the same in both layouts. With `biome_lock` on, a biome check needs that biome's Access item. The goal counts run-level checks instead, "Complete Run with Auto Rifle on Gold", which go out when you clear the run's final island, whichever biome it is in. They need the item but no biome access.
+A short run has exactly 28 biome checks of each kind. A full run adds a second set for its second pass through the biomes: "Complete Arctic Island 1 (Loop 2)". The number of checks is the same in both layouts. With `biome_lock` on, a biome check needs that biome's Access item. The goal counts run-level checks instead, "Complete Run with Auto Rifle on Gold", which go out when you clear the run's final island, whichever biome it is in. They need the item but no biome access. With a Bronze goal the final island's plain equipment check, in whichever biome the run ends, counts instead.
 
 Seeds made before this option existed use island numbers.
 
@@ -160,7 +162,7 @@ These options control how difficulty ranks interact with location checks. They a
 #### `max_rank` (Default: Sapphire)
 The highest rank that generates location checks. Must be >= `required_rank`. Any rank above this produces no locations at all. The ranks between `required_rank` and `max_rank` provide optional extra checks when `extra_rank_checks` is set to anything other than `none`.
 
-> **Example:** With `required_rank: bronze` and `max_rank: gold`, locations can be generated for Bronze, Silver, and Gold. Anything done at Sapphire or above produces no additional checks.
+> **Example:** With `required_rank: bronze` and `max_rank: gold`, locations can be generated for Bronze (the plain checks), Silver, and Gold. Anything done at Sapphire or above produces no additional checks.
 
 #### `extra_rank_checks` (Default: none)
 Controls whether ranks **above** `required_rank` generate additional location checks. Replaces the legacy `extra_ranked_island_checks` + `non_progression_above_required` pair with a single option:
@@ -171,22 +173,22 @@ Controls whether ranks **above** `required_rank` generate additional location ch
 
 Has no effect when `required_rank == max_rank` (no extra ranks exist).
 
-> **Example:** With `required_rank: bronze`, `max_rank: gold`, and `extra_rank_checks: progression`, completing Island 10 generates three separate checks: "Complete Island 10 on Bronze", "Complete Island 10 on Silver", and "Complete Island 10 on Gold". With `filler_only` instead, the same checks exist but the Silver/Gold ones won't hold critical items.
+> **Example:** With `required_rank: bronze`, `max_rank: gold`, and `extra_rank_checks: progression`, completing Island 10 generates three separate checks: "Complete Island 10", "Complete Island 10 on Silver", and "Complete Island 10 on Gold". With `filler_only` instead, the same checks exist but the Silver/Gold ones won't hold critical items.
 
 #### `cascade_ranked_checks` (Default: false)
 When enabled, completing a check at a higher rank automatically completes the equivalent check at all lower ranks.
 
-> **Example:** With cascade enabled, completing "Island 5 on Gold" also marks "Island 5 on Silver" and "Island 5 on Bronze" as complete. Without cascade, you'd need to complete each rank separately.
+> **Example:** With cascade enabled, completing "Island 5 on Gold" also marks "Island 5 on Silver" and the plain "Complete Island 5" as complete. Without cascade, you'd need to complete each rank separately.
 
 #### `minimize_run_checks` (Default: false)
 When enabled, drops generalized run-completion checks that are made redundant by more-specific equipment-and-rank checks. When equipment runs are enabled (`equipment_check_mode != disabled`):
 
 - "Complete Island X on Rank" checks are removed
-- "Complete Island X with Weapon" checks are removed
+- "Complete Island X with Weapon" checks are removed (unless they are the Bronze checks, see below)
 
 The most specific "Complete Island X with Weapon on Rank" check is always kept.
 
-> **Example:** With minimize on and equipment runs enabled, completing "Island 5 with Auto Rifle on Bronze" is the only check generated for that combination — the standalone "Island 5 on Bronze" and "Island 5 with Auto Rifle" checks are dropped since they'd fire automatically from the same gameplay.
+> **Example:** With minimize on and equipment runs enabled, completing "Island 5 with Auto Rifle on Gold" is the only ranked check generated for that combination — the standalone "Island 5 on Gold" check is dropped since it would fire automatically from the same gameplay. The plain "Island 5 with Auto Rifle" check is the Bronze check, so it stays when Bronze is part of the goal or `extra_rank_checks` is on.
 
 ---
 
@@ -316,7 +318,7 @@ When enabled, dying in Crab Champions sends a death to all connected Death Link 
 
 ## Locations
 With the maximum settings selected, there are about 16,900 possible checks. 
-- **Island Completion**: Completing an island at a specific rank sends a check.
+- **Island Completion**: Completing an island sends a check, and so does completing it at a specific rank above Bronze.
 - **Equipment**: Completing islands with specific weapons, melee weapons, or abilities equipped can send checks based on the `equipment_check_mode` setting.
 - **Run Completion**: Finishing a run at or above the required rank sends a check.
 - **Perk/Mod Pickup**: Grabbing a perk or mod that is in the item pool sends a check.

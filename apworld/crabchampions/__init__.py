@@ -200,6 +200,7 @@ class CrabChampsWorld(World):
             or len(self.pool_abilities) > 0
         )
         drop_redundant = minimize and have_equipment
+        self._drop_redundant = drop_redundant
 
         # Always-on categories
         self.enabled_location_categories.add(CrabChampsLocationCategory.ISLAND)
@@ -220,19 +221,17 @@ class CrabChampsWorld(World):
 
         # Weapon run locations: pool weapons always exist, non-pool depends on equip_mode.
         # Always enable the category; _should_include_location filters per-weapon.
-        # Unranked weapon-run drops when minimize covers them with the ranked variant.
-        if not drop_redundant:
-            self.enabled_location_categories.add(CrabChampsLocationCategory.WEAPON_RUN)
+        # The unranked equipment runs double as the Bronze tier, so they stay
+        # whenever Bronze is covered; minimize only drops them for higher ranks.
+        self.enabled_location_categories.add(CrabChampsLocationCategory.WEAPON_RUN)
         self.enabled_location_categories.add(CrabChampsLocationCategory.RANKED_WEAPON_RUN)
 
         # Melee/ability run locations: only when melee/ability completion is active
         if self.options.melee_for_completion.value > 0:
-            if not drop_redundant:
-                self.enabled_location_categories.add(CrabChampsLocationCategory.MELEE_RUN)
+            self.enabled_location_categories.add(CrabChampsLocationCategory.MELEE_RUN)
             self.enabled_location_categories.add(CrabChampsLocationCategory.RANKED_MELEE_RUN)
         if self.options.ability_for_completion.value > 0:
-            if not drop_redundant:
-                self.enabled_location_categories.add(CrabChampsLocationCategory.ABILITY_RUN)
+            self.enabled_location_categories.add(CrabChampsLocationCategory.ABILITY_RUN)
             self.enabled_location_categories.add(CrabChampsLocationCategory.RANKED_ABILITY_RUN)
 
         # Biome layout: the island checks switch to their biome twins, and the goal gets run-level equipment
@@ -382,19 +381,26 @@ class CrabChampsWorld(World):
         extra_ranked = extra_rank_mode != 0
         equip_mode = self.options.equipment_check_mode.value
 
+        # Bronze has no checks of its own: the plain (unranked) check is the
+        # Bronze check. Ranked locations start at Silver.
         # Determine which ranks are allowed for ranked locations:
         # Always include required_rank. When extra is on, include all up to max_rank.
         def _rank_allowed(rank: int) -> bool:
+            if rank < 1:
+                return False
             if rank == required_rank:
                 return True
-            if extra_ranked and 0 <= rank <= max_rank:
+            if extra_ranked and rank <= max_rank:
                 return True
             return False
 
+        # Whether the Bronze tier counts: it is the required rank, or an extra rank.
+        bronze_tier = required_rank == 0 or extra_ranked
+
         # Island locations: filter by run_length.
-        # When extra_ranked is on, skip unranked island completions (ranked versions cover them).
+        # With extra ranks on, minimize leaves islands to the equipment checks.
         if category == CrabChampsLocationCategory.ISLAND:
-            if extra_ranked:
+            if extra_ranked and self._drop_redundant:
                 return False
             island_num = self._extract_island_num(location.name)
             return island_num <= run_length
@@ -408,23 +414,27 @@ class CrabChampsWorld(World):
             return island_num <= run_length
 
         # Rank runs: only required_rank when extra_ranked is off,
-        # all ranks up to max_rank when extra_ranked is on
+        # all ranks up to max_rank when extra_ranked is on.
+        # There is no Bronze rank run; finishing the run is the goal itself.
         if category == CrabChampsLocationCategory.RANK_RUN:
             rank_name = location.name.replace("Complete Run on ", "")
             rank_index = RANK_NAMES.index(rank_name) if rank_name in RANK_NAMES else -1
+            if rank_index < 1:
+                return False
             if extra_ranked:
                 return rank_index <= max_rank
             else:
                 return rank_index == required_rank
 
         # Equipment runs (unranked): filter by run_length + pool membership.
-        # When extra_ranked is on, skip unranked equipment runs (ranked versions cover them).
+        # They stand in for Bronze, so minimize only drops them when Bronze
+        # is not covered (a higher required rank without extra rank checks).
         if category in (
             CrabChampsLocationCategory.WEAPON_RUN,
             CrabChampsLocationCategory.MELEE_RUN,
             CrabChampsLocationCategory.ABILITY_RUN,
         ):
-            if extra_ranked:
+            if self._drop_redundant and not bronze_tier:
                 return False
             equip_name = self._extract_equip_name(location.name)
             is_pool = self._is_pool_equipment(equip_name, category)
@@ -516,18 +526,20 @@ class CrabChampsWorld(World):
         n_non_pool_abilities = len(self.non_pool_abilities) if self.options.ability_for_completion.value > 0 else 0
 
         # Count how many ranked tiers have locations
+        # (Bronze has no ranked checks; the unranked ones stand in for it.)
         if extra_ranked:
-            ranked_tiers = list(range(max_rank + 1))
+            ranked_tiers = list(range(1, max_rank + 1))
         else:
-            ranked_tiers = [required_rank]
+            ranked_tiers = [required_rank] if required_rank >= 1 else []
+        bronze_tier = required_rank == 0 or extra_ranked
 
         # Equipment filler_only mode: only NON-POOL equipment run locations are excluded
         # (pool equipment locations are always regular)
         if equip_mode == 1:  # filler_only
             n_non_pool = n_non_pool_weapons + n_non_pool_melee + n_non_pool_abilities
-            # Unranked non-pool equipment runs (only exist when extra_ranked is off
-            # AND minimize did not drop them).
-            if not extra_ranked and not drop_redundant:
+            # Unranked non-pool equipment runs (they exist unless minimize
+            # dropped them with Bronze not covered).
+            if bronze_tier or not drop_redundant:
                 excluded += run_length * n_non_pool
             # Ranked non-pool equipment runs (one set per included rank tier)
             excluded += len(ranked_tiers) * run_length * n_non_pool
@@ -843,6 +855,9 @@ class CrabChampsWorld(World):
                 "run_length": self.options.run_length.value,
                 # 0 = island_number, 1 = biome. Seeds without it use island numbers.
                 "check_layout": self.options.check_layout.value,
+                # False: there are no "on Bronze" checks, the plain checks count
+                # as Bronze. Seeds without it still have them.
+                "bronze_checks": False,
                 # Only pool equipment counts toward completion.  Seeds made
                 # before this field existed also counted non-pool runs, and
                 # the client keeps that rule for them.

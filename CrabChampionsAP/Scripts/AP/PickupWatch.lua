@@ -212,6 +212,12 @@ local function ranks_to_check(current_rank)
             ranks[#ranks + 1] = r
         end
     end
+    -- Without Bronze checks the plain checks are the Bronze checks, and every
+    -- clear counts as Bronze whatever its rank.
+    if not LocationData.bronze_checks and current_rank > 0
+            and not LocationData.cascade_ranked_checks then
+        ranks[#ranks + 1] = 0
+    end
     return ranks
 end
 
@@ -237,10 +243,13 @@ function M.check_victory()
     local req_rank = LocationData.required_rank
     local equip_mode = LocationData.equipment_check_mode
 
-    -- Check rank run at required rank is completed
-    local rank_loc = LocationData.rank_run_location_id(req_rank)
-    if not rank_loc or not client:is_location_checked(rank_loc) then
-        return false
+    -- Check rank run at required rank is completed. Bronze has no rank run
+    -- of its own; the final-island equipment checks below show the run is done.
+    if LocationData.rank_is_separate(req_rank) then
+        local rank_loc = LocationData.rank_run_location_id(req_rank)
+        if not rank_loc or not client:is_location_checked(rank_loc) then
+            return false
+        end
     end
 
     --- Count completed runs at the final island on the required rank.
@@ -566,9 +575,11 @@ function M.install(ap_client)
             for _, r in ipairs(check_ranks) do
                 if r <= LocationData.max_rank then
                     local rname = LocationData.RANK_NAMES[r + 1] or "?"
+                    -- Bronze without Bronze checks is the plain check: log it by its own name.
+                    local rsfx = LocationData.rank_is_separate(r) and (" on " .. rname) or ""
                     try_send_check(
-                        LocationData.island_location_id(idx, r),
-                        "Ranked island: " .. lname .. " on " .. rname
+                        LocationData.island_location_id(idx, LocationData.tier_rank(r)),
+                        "Ranked island: " .. lname .. rsfx
                     )
                 end
             end
@@ -578,7 +589,8 @@ function M.install(ap_client)
                 LocationData.island_location_id(idx),
                 "Island check: " .. lname
             )
-            if rank >= LocationData.required_rank then
+            if rank >= LocationData.required_rank
+                    and LocationData.rank_is_separate(LocationData.required_rank) then
                 local rname = LocationData.RANK_NAMES[LocationData.required_rank + 1] or "?"
                 try_send_check(
                     LocationData.island_location_id(idx, LocationData.required_rank),
@@ -604,7 +616,7 @@ function M.install(ap_client)
             if not LocationData.extra_ranked_island_checks then
                 local req_rank = LocationData.required_rank
                 local rname = LocationData.RANK_NAMES[req_rank + 1] or "?"
-                local at_req = rank >= req_rank
+                local at_req = rank >= req_rank and LocationData.rank_is_separate(req_rank)
 
                 if weapon_fn then
                     local wname = LocationData.equipment_name("weapon", weapon_fn)
@@ -658,12 +670,13 @@ function M.install(ap_client)
                 for _, r in ipairs(check_ranks) do
                     if r <= LocationData.max_rank then
                         local rname = LocationData.RANK_NAMES[r + 1] or "?"
+                        local rsfx = LocationData.rank_is_separate(r) and (" on " .. rname) or ""
                         if weapon_fn then
                             local wname = LocationData.equipment_name("weapon", weapon_fn)
                             if should_check_equip(wname, LocationData.is_pool_weapon) then
                                 try_send_check(
-                                    LocationData.weapon_run_location_id(idx, weapon_fn, r),
-                                    "Ranked weapon: " .. iname .. " with " .. wname .. " on " .. rname
+                                    LocationData.weapon_run_location_id(idx, weapon_fn, LocationData.tier_rank(r)),
+                                    "Ranked weapon: " .. iname .. " with " .. wname .. rsfx
                                 )
                             end
                         end
@@ -671,8 +684,8 @@ function M.install(ap_client)
                             local mname = LocationData.equipment_name("melee", melee_fn)
                             if should_check_equip(mname, LocationData.is_pool_melee) then
                                 try_send_check(
-                                    LocationData.melee_run_location_id(idx, melee_fn, r),
-                                    "Ranked melee: " .. iname .. " with " .. mname .. " on " .. rname
+                                    LocationData.melee_run_location_id(idx, melee_fn, LocationData.tier_rank(r)),
+                                    "Ranked melee: " .. iname .. " with " .. mname .. rsfx
                                 )
                             end
                         end
@@ -680,8 +693,8 @@ function M.install(ap_client)
                             local aname = LocationData.equipment_name("ability", ability_fn)
                             if should_check_equip(aname, LocationData.is_pool_ability) then
                                 try_send_check(
-                                    LocationData.ability_run_location_id(idx, ability_fn, r),
-                                    "Ranked ability: " .. iname .. " with " .. aname .. " on " .. rname
+                                    LocationData.ability_run_location_id(idx, ability_fn, LocationData.tier_rank(r)),
+                                    "Ranked ability: " .. iname .. " with " .. aname .. rsfx
                                 )
                             end
                         end
@@ -698,7 +711,7 @@ function M.install(ap_client)
             if LocationData.extra_ranked_island_checks then
                 -- Extra ranked mode: send rank runs for all applicable ranks
                 for _, r in ipairs(check_ranks) do
-                    if r <= LocationData.max_rank then
+                    if r <= LocationData.max_rank and LocationData.rank_is_separate(r) then
                         local rname = LocationData.RANK_NAMES[r + 1] or "?"
                         try_send_check(
                             LocationData.rank_run_location_id(r),
@@ -708,7 +721,8 @@ function M.install(ap_client)
                 end
             else
                 -- Normal mode: only send rank run at required_rank
-                if rank >= LocationData.required_rank then
+                if rank >= LocationData.required_rank
+                        and LocationData.rank_is_separate(LocationData.required_rank) then
                     local rname = LocationData.RANK_NAMES[LocationData.required_rank + 1] or "?"
                     try_send_check(
                         LocationData.rank_run_location_id(LocationData.required_rank),
@@ -737,11 +751,13 @@ function M.install(ap_client)
                         local ename = LocationData.equipment_name(k[1], k[2])
                         if should_check_equip(ename, k[3]) then
                             for _, r in ipairs(run_ranks) do
-                                try_send_check(
+                                -- Bronze has no run-level check; the final island's
+                                -- plain check above is the one that counts.
+                                if LocationData.rank_is_separate(r) then try_send_check(
                                     LocationData.run_equipment_location_id(k[1], ename, r),
                                     "Run " .. k[1] .. ": Complete Run with " .. ename .. " on "
                                         .. (LocationData.RANK_NAMES[r + 1] or "?")
-                                )
+                                ) end
                             end
                         end
                     end

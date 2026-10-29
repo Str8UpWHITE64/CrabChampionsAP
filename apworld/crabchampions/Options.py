@@ -19,7 +19,11 @@ class RequiredRank(Choice):
     Higher ranks demand stacking more modifier cards before each island, so
     higher requirements mean tougher runs.  Run-completion locations are
     generated for this rank by default; see Extra Rank Checks to also
-    generate locations for higher ranks."""
+    generate locations for higher ranks.
+
+    Bronze has no checks of its own, since every clear is at least Bronze:
+    the plain "Complete Island X" and "Complete Island X with Weapon"
+    checks are the Bronze checks.  A Bronze goal uses those."""
     display_name = "Required Rank"
     option_bronze = 0
     option_silver = 1
@@ -214,7 +218,8 @@ class EquipmentCheckMode(Choice):
 
 class MaxRank(Choice):
     """The highest rank for which any location checks are generated.  Must
-    be >= Required Rank (auto-clamped).
+    be >= Required Rank (auto-clamped).  Bronze here means only the plain
+    (unranked) checks.
 
     Has no effect unless Extra Rank Checks is set to something other than
     "none" - without extra rank checks, only Required Rank generates
@@ -262,7 +267,7 @@ class CascadeRankedChecks(Toggle):
     """When enabled, completing an in-game check at a higher rank also
     triggers the equivalent check at every lower rank.  E.g. completing
     "Island 5 with Auto Rifle on Gold" also sends checks for "Island 5
-    with Auto Rifle on Silver" and "...on Bronze".
+    with Auto Rifle on Silver" and the plain "Island 5 with Auto Rifle".
 
     Convenient when playing at high ranks - you don't have to redo runs
     at lower ranks for the easier checks.  Has no effect on generation
@@ -281,6 +286,10 @@ class MinimizeRunChecks(Toggle):
     The most specific "Complete Island X with Weapon on Rank" check is
     always kept, since completing it implies completing all the dropped
     variants.  Plain "Complete Island X" (unranked) is also kept.
+
+    The plain "Complete Island X with Weapon" checks are the Bronze checks,
+    so they are kept when Bronze is part of the goal (Required Rank Bronze)
+    or when Extra Rank Checks is on.
 
     Has no effect only in the unusual case where there are no equipment
     runs at all (which currently can't happen since Weapons in Pool is

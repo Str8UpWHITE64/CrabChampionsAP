@@ -71,7 +71,8 @@ def run(ap_dir):
         if cats(a) != cb:
             problems.append(f"{tag}: category counts differ {cats(a)} vs {cb}")
         runs = [n for n in nb if n.startswith("Complete Run with ")]
-        if not runs or any(n in na for n in runs):
+        # With the default Bronze goal and no extra ranks there are none: the plain checks stand in for Bronze.
+        if (extra != 0 and not runs) or (extra == 0 and runs) or any(n in na for n in runs):
             problems.append(f"{tag}: run-level equipment checks missing or in the island layout")
         excluded = {}
         for t, tg in ((a, "island"), (b, "biome")):
