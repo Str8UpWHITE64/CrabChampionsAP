@@ -49,7 +49,7 @@ The release zip includes [UE4SS v3.0.1](https://github.com/UE4SS-RE/RE-UE4SS/rel
        └── ...                  (UE4SS's built-in mods)
    ```
    > **Note:** This replaces `Mods\mods.txt` and `UE4SS-settings.ini`. `mods.txt` makes `CrabInvMngmt` load before `CrabChampionsAP` so the C++ inventory functions are available when the Lua mod starts. If you have other UE4SS mods installed, add their lines back to `mods.txt` above the `Keybinds` line.
-4. Launch the game! Press **F4** to open the connection panel, enter your server details, and press **F3** to connect.
+4. Launch the game! Press **F4** (or pick **Archipelago** in the pause menu) to open the connection panel, enter your server details, and click **Connect** (or press **F3**).
    - Your connection details are saved automatically after a successful connection, so you only need to enter them once.
 
 ### Worlds made with older versions

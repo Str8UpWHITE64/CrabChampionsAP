@@ -7,6 +7,7 @@ local APOverlay = {}
 
 local ConnStatus = require("AP/ConnStatus")
 local GameThread = require("AP/GameThread")
+local ClickWatch = require("AP/ClickWatch")
 
 local UEHelpers = nil
 pcall(function() UEHelpers = require("UEHelpers") end)
@@ -20,6 +21,12 @@ local VIS_COLLAPSED = 1
 local VIS_HIDDEN = 2
 local VIS_HIT_INVIS = 3       -- visible but not interactable
 local VIS_SELF_HIT_INVIS = 4  -- visible, children interactable, self not
+
+-- Connect button labels
+local HINT_IDLE = "Connect   (F3)"
+local HINT_CONNECTED = "Disconnect   (F3)"
+local HINT_CONNECTING = "Connecting...   (click or F3 to try again)"
+local CLOSE_HINT = "F4 closes this window"
 
 -- ============================================================================
 -- Helpers
@@ -59,6 +66,7 @@ local overlay = {
     password_input = nil,
 
     -- Buttons
+    connect_btn = nil,   -- Button (click = F3)
     connect_btn_text = nil,
     error_text = nil,    -- plain-words reason the last connect failed
     info_text = nil,     -- slot, seed, counts while connected
@@ -125,6 +133,7 @@ local function is_alive()
         overlay.server_input = nil
         overlay.slot_input = nil
         overlay.password_input = nil
+        overlay.connect_btn = nil
         overlay.connect_btn_text = nil
         overlay.error_text = nil
         overlay.info_text = nil
@@ -406,18 +415,24 @@ function APOverlay.create(ap_config)
 
     add_spacer(overlay.conn_vbox, "APSpacer4", 10)
 
-    -- Connect hint
-    local hint_border = make("/Script/UMG.Border", overlay.conn_vbox, "APHintBorder")
-    if hint_border then
-        hint_border:SetBrushColor(FLinearColor(0.15, 0.35, 0.55, 0.9))
-        hint_border:SetPadding({ Left = 15, Top = 8, Right = 15, Bottom = 8 })
-        overlay.connect_btn_text = make_text(hint_border, "APConnectHintText",
-            "Press F3 to Connect   (F4 closes this window)", 16, { 1, 1, 1, 1 })
+    -- Connect button (a click does what F3 does). Not focusable, so Space or Enter while playing never presses it.
+    overlay.connect_btn = make("/Script/UMG.Button", overlay.conn_vbox, "APConnectButton")
+    if overlay.connect_btn then
+        pcall(function() overlay.connect_btn.IsFocusable = false end)
+        pcall(function() overlay.connect_btn:SetBackgroundColor(FLinearColor(0.25, 0.55, 0.85, 1)) end)
+        overlay.connect_btn_text = make_text(overlay.connect_btn, "APConnectButtonText", HINT_IDLE, 16, { 1, 1, 1, 1 })
         if overlay.connect_btn_text then
-            hint_border:SetContent(overlay.connect_btn_text)
+            pcall(function()
+                local s = overlay.connect_btn:SetContent(overlay.connect_btn_text)
+                if s then s:SetPadding({ Left = 15, Top = 6, Right = 15, Bottom = 6 }) end
+            end)
         end
-        overlay.conn_vbox:AddChildToVerticalBox(hint_border)
+        overlay.conn_vbox:AddChildToVerticalBox(overlay.connect_btn)
     end
+    shown.connect_btn_text = HINT_IDLE
+
+    local close_hint = make_text(overlay.conn_vbox, "APCloseHint", CLOSE_HINT, 12, { 0.7, 0.7, 0.7, 1 })
+    if close_hint then overlay.conn_vbox:AddChildToVerticalBox(close_hint) end
 
     overlay.error_text = make_text(overlay.conn_vbox, "APErrorText", "", 15, { 1, 0.55, 0.45, 1 })
     if overlay.error_text then
@@ -500,6 +515,12 @@ function APOverlay.create(ap_config)
     overlay.visible = true
     panel_shown = false
     log("Overlay created successfully")
+
+    -- Clicks on the Connect button, read only while the panel is open.
+    ClickWatch.watch("connect",
+        function() return overlay.connect_btn end,
+        function(source) APOverlay.request_connect(source) end,
+        function() return panel_shown and overlay.initialized end)
 
     -- Apply any queued state
     if queued_connected then
@@ -685,10 +706,6 @@ function APOverlay.set_status(text, r, g, b)
     end
 end
 
-local HINT_IDLE = "Press F3 to Connect   (F4 closes this window)"
-local HINT_CONNECTED = "Press F3 to Disconnect   (F4 closes this window)"
-local HINT_CONNECTING = "Connecting...   (F3 to try again)"
-
 local timeout_handler = nil
 local conn_gen = 0
 local info_gen = 0
@@ -703,6 +720,35 @@ function APOverlay.clear_progress()
     put("victory_summary_text", "")
     put("item_log_text", "(none)")
     put("info_text", "")
+end
+
+-- ----------------------------------------------------------------------------
+-- Connect requests. main.lua gives the function F3 runs; the Connect button runs the very same one.
+-- ----------------------------------------------------------------------------
+local connect_handler = nil
+local connect_requests = 0
+
+function APOverlay.set_connect_handler(fn)
+    connect_handler = fn
+end
+
+--- Connect, disconnect or retry, exactly as F3 does. `source` is only for the log and readback ("F3", "pointer"...).
+function APOverlay.request_connect(source)
+    connect_requests = connect_requests + 1
+    shown.connect_source = tostring(source or "?")
+    shown.connect_requests = connect_requests
+    if not connect_handler then
+        log("Connect pressed (" .. shown.connect_source .. ") but no handler is set")
+        return false
+    end
+    local ok, err = pcall(connect_handler, source)
+    if not ok then log("Connect failed: " .. tostring(err)) end
+    return ok
+end
+
+--- Run a watched button's click action the way a pointer click does ("connect"). For tests and debug tools.
+function APOverlay.click(name, source)
+    return ClickWatch.fire(name, source or "test")
 end
 
 --- main.lua supplies a function returning { server, slot, seed, items, checked }.
@@ -834,9 +880,24 @@ function APOverlay.get_password()
     return nil
 end
 
+--- Put server, slot and password into the input boxes (nil leaves a box as it is).
+function APOverlay.set_fields(server, slot, password)
+    if not is_alive() then return false end
+    local function fill(box, v)
+        if box and v ~= nil then pcall(function() box:SetText(FText(tostring(v))) end) end
+    end
+    fill(overlay.server_input, server)
+    fill(overlay.slot_input, slot)
+    fill(overlay.password_input, password)
+    return true
+end
+
 --- Everything the panel and status label currently say, for tests and debug tools.
 function APOverlay.get_shown()
-    local out = { state = overlay.state, panel = panel_shown }
+    local out = { state = overlay.state, panel = panel_shown,
+                  connect_button = overlay.connect_btn ~= nil,
+                  connect_clicks = ClickWatch.counts.connect or 0,
+                  pointer_captured = cursor_state ~= nil }
     for k, v in pairs(shown) do out[k] = v end
     return out
 end

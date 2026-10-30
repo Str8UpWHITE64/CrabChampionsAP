@@ -1138,29 +1138,58 @@ RegisterKeyBind(Key.F4, GameThread.signal(function()
     end)
 end))
 
--- F3: Connect/disconnect using overlay input fields
+-- Connect/disconnect using the overlay's input fields. F3 and the panel's Connect button both run this,
+-- on the game thread.
+local function toggle_connection(source)
+    if APClient:is_slot_connected() or APClient:is_connected() then
+        log("Disconnecting from AP server (" .. tostring(source) .. ")...")
+        APClient:queue_command("disconnect")
+        if APOverlay then APOverlay.set_disconnected() end
+    else
+        -- Read connection details from overlay inputs if available
+        if APOverlay and APOverlay.is_initialized() then
+            local server = APOverlay.get_server()
+            local slot = APOverlay.get_slot()
+            local password = APOverlay.get_password()
+            if server and server ~= "" then APClient.server = server end
+            if slot and slot ~= "" then APClient.slot = slot end
+            if password then APClient.password = password end
+        end
+        log("Connecting to " .. tostring(APClient.server) .. " as '" .. tostring(APClient.slot) .. "' ("
+            .. tostring(source) .. ")...")
+        if APOverlay then APOverlay.set_connecting(APClient.server) end
+        APClient:queue_command("connect")
+    end
+end
+
+if APOverlay and APOverlay.set_connect_handler then
+    APOverlay.set_connect_handler(toggle_connection)
+end
+
+-- F3: same as clicking Connect
 RegisterKeyBind(Key.F3, GameThread.signal(function()
     GameThread.run(function()
-        if APClient:is_slot_connected() or APClient:is_connected() then
-            log("Disconnecting from AP server...")
-            APClient:queue_command("disconnect")
-            if APOverlay then APOverlay.set_disconnected() end
+        if APOverlay and APOverlay.request_connect then
+            APOverlay.request_connect("F3")
         else
-            -- Read connection details from overlay inputs if available
-            if APOverlay and APOverlay.is_initialized() then
-                local server = APOverlay.get_server()
-                local slot = APOverlay.get_slot()
-                local password = APOverlay.get_password()
-                if server and server ~= "" then APClient.server = server end
-                if slot and slot ~= "" then APClient.slot = slot end
-                if password then APClient.password = password end
-            end
-            log("Connecting to " .. tostring(APClient.server) .. " as '" .. tostring(APClient.slot) .. "'...")
-            if APOverlay then APOverlay.set_connecting(APClient.server) end
-            APClient:queue_command("connect")
+            toggle_connection("F3")
         end
     end)
 end))
+
+-- "Archipelago" button in the pause menu: opens the connection window.
+if APOverlay then
+    local pb_ok, PauseButton = pcall(require, "AP/PauseButton")
+    if pb_ok then
+        PauseButton.install(function()
+            if not APOverlay.is_initialized() then try_create_overlay() end
+            if APOverlay.is_initialized() then APOverlay.show_panel() end
+        end)
+        AP.PauseButton = PauseButton
+    else
+        log("Pause menu button not available: " .. tostring(PauseButton))
+    end
+end
 
 -- What the panel shows while connected, and what to do when the server never answers.
 if APOverlay and APOverlay.set_info_provider then
