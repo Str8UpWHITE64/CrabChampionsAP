@@ -208,7 +208,9 @@ end
 -- An op whose object has been replaced since (a new run) is skipped on undo: the new object starts from defaults.
 --
 -- "ActorScale" is not a property: it reads and writes the crab's actor scale (CrabPS.ScaleMultiplier changes nothing
--- visible, SetActorScale3D does).
+-- visible, SetActorScale3D does). A size perk may only change CrabPS.ScaleMultiplier and leave the actor scale to
+-- the game, so an op can name a second value to watch (ops 4th and 5th fields): when that value changes by itself,
+-- the op's base changes by the same ratio.
 
 local KIND_OF = {
     ["Slowdown Trap"]       = "speed",
@@ -232,9 +234,9 @@ local function ops_for(name)
     elseif name == "Weak Shots Trap" then
         return { { "ps", "DamageMultiplier", weak } }
     elseif name == "Grow Trap" then
-        return { { "player", "ActorScale", M.GROW_FACTOR } }
+        return { { "player", "ActorScale", M.GROW_FACTOR, "ps", "ScaleMultiplier" } }
     elseif name == "Shrink Trap" then
-        return { { "player", "ActorScale", M.SHRINK_FACTOR } }
+        return { { "player", "ActorScale", M.SHRINK_FACTOR, "ps", "ScaleMultiplier" } }
     elseif name == "Heavy Gravity Trap" then
         return { { "cmc", "GravityScale", M.HEAVY_FACTOR } }
     elseif name == "Floaty Gravity Trap" then
@@ -256,12 +258,16 @@ end
 local function apply_ops(ops)
     local applied = {}
     for _, o in ipairs(ops) do
-        local op = { target = o[1], prop = o[2], factor = o[3] }
+        local op = { target = o[1], prop = o[2], factor = o[3], wtarget = o[4], wprop = o[5] }
         local obj, cur = read_op(op)
         if cur then
             local written = cur * op.factor
             if game.set(obj, op.prop, written) then
                 op.addr, op.base, op.written = game.addr(obj), cur, written
+                if op.wtarget then
+                    local wo = game.target(op.wtarget)
+                    op.wseen = wo and game.get(wo, op.wprop) or nil
+                end
                 applied[#applied + 1] = op
             end
         end
@@ -273,10 +279,24 @@ end
 local function enforce_ops(applied)
     for _, op in ipairs(applied) do
         local obj, cur = read_op(op)
-        if obj and cur and game.addr(obj) == op.addr and not close(cur, op.written) then
-            op.base = cur
-            op.written = cur * op.factor
-            game.set(obj, op.prop, op.written)
+        if obj and cur and game.addr(obj) == op.addr then
+            local wcur
+            if op.wtarget then
+                local wo = game.target(op.wtarget)
+                wcur = wo and game.get(wo, op.wprop) or nil
+            end
+            if not close(cur, op.written) then
+                -- the game wrote the value itself
+                op.base = cur
+                op.written = cur * op.factor
+                game.set(obj, op.prop, op.written)
+            elseif wcur and op.wseen and op.wseen ~= 0 and not close(wcur, op.wseen) then
+                -- the game changed only the watched value: move the base by the same ratio
+                op.base = op.base * wcur / op.wseen
+                op.written = op.base * op.factor
+                game.set(obj, op.prop, op.written)
+            end
+            if wcur then op.wseen = wcur end
         end
     end
 end
@@ -293,6 +313,7 @@ end
 local function end_effect(kind, why)
     local e = active[kind]
     if not e then return end
+    enforce_ops(e.applied)
     undo_ops(e.applied)
     active[kind] = nil
     log("Trap over (" .. why .. "): " .. e.name)

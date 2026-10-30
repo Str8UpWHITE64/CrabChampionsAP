@@ -192,6 +192,74 @@ g.clock += 31
 Traps.tick()
 expect("size restored", world.player.ActorScale, 1.0)
 
+# --- a size perk that sets the actor scale mid-trap is kept after the trap
+fresh()
+Traps.on_item(info("Grow Trap"), 0, ID)
+Traps.tick()
+world.player.ActorScale = 1.2        # the game sets the size after a size perk
+world.ps.ScaleMultiplier = 1.2
+Traps.tick()
+expect("perk size under the trap", world.player.ActorScale, 1.92)
+g.clock += 31
+Traps.tick()
+expect("perk size kept", world.player.ActorScale, 1.2)
+
+# --- a size perk that only changes the scale multiplier mid-trap is kept too
+fresh()
+Traps.on_item(info("Shrink Trap"), 0, ID)
+Traps.tick()
+world.ps.ScaleMultiplier = 1.25      # the game leaves the actor scale to its own update
+Traps.tick()
+expect("shrink follows the perk", world.player.ActorScale, 0.625)
+g.clock += 31
+Traps.tick()
+expect("perk size kept after shrink", world.player.ActorScale, 1.25)
+
+# --- a size perk in the same tick the trap ends is kept
+fresh()
+Traps.on_item(info("Grow Trap"), 0, ID)
+Traps.tick()
+g.clock += 31
+world.player.ActorScale = 1.2
+world.ps.ScaleMultiplier = 1.2
+Traps.tick()
+expect("perk at the end kept", world.player.ActorScale, 1.2)
+
+# --- a size change after the trap is left alone
+fresh()
+Traps.on_item(info("Grow Trap"), 0, ID)
+Traps.tick()
+g.clock += 31
+Traps.tick()
+world.player.ActorScale = 1.2
+world.ps.ScaleMultiplier = 1.2
+Traps.tick()
+expect("size after the trap untouched", world.player.ActorScale, 1.2)
+
+# --- gravity changed by the game mid-trap is kept; after the trap is left alone
+fresh()
+Traps.on_item(info("Heavy Gravity Trap"), 0, ID)
+Traps.tick()
+world.cmc.GravityScale = 1.5
+Traps.tick()
+expect("gravity follows the game", world.cmc.GravityScale, 3.0)
+g.clock += 31
+Traps.tick()
+expect("game gravity kept", world.cmc.GravityScale, 1.5)
+world.cmc.GravityScale = 1.8
+Traps.tick()
+expect("gravity after the trap untouched", world.cmc.GravityScale, 1.8)
+
+# --- speed changed by the game after the slowdown ended is left alone
+fresh()
+Traps.on_item(info("Slowdown Trap"), 0, ID)
+Traps.tick()
+world.island = 2
+Traps.tick()
+world.cmc.MaxWalkSpeed = 1200.0
+Traps.tick()
+expect("speed after the trap untouched", world.cmc.MaxWalkSpeed, 1200.0)
+
 # --- Gravity up then lobby return undoes it
 fresh()
 Traps.on_item(info("Heavy Gravity Trap"), 0, ID)
