@@ -773,26 +773,67 @@ function M.on_biome_cleared()
 end
 
 
+--- The perks in the inventory right now, read from the game: full_name, level
+--- and DA of each. Nil when the inventory cannot be read.
+local function observed_perks()
+    local ok, InvSan = pcall(require, "AP/InventorySanitize")
+    if not ok or not InvSan or not InvSan.build_inventory_snapshot then return nil end
+    local ps = M._get_ps()
+    if not ps then return nil end
+    local snap = safe(function() return InvSan.build_inventory_snapshot(ps) end, nil)
+    if not snap or not snap.perks then return nil end
+    local out = {}
+    for full_name, entry in pairs(snap.perks) do
+        out[#out + 1] = { full_name = full_name, level = tonumber(entry.level) or 1, da = entry.da }
+    end
+    table.sort(out, function(a, b) return a.full_name < b.full_name end)
+    return out
+end
+
 --- Perk Boost: add `levels` levels to one random perk the player holds this run.
---- Skips greed perks. Goes through the same target the run draw uses, so a
---- reconnect or the inventory sync keeps it.
+--- The candidates are the perks really in the inventory (received, found in the
+--- run, or kept from a pickup), not only the ones this module applied. Greed
+--- perks are skipped.
 --- Returns the perk's name and its new level, or nil when nothing qualifies.
 function M.boost_random_perk(levels)
     levels = math.max(1, tonumber(levels) or 1)
     local CAT = ItemData.CATEGORY
+    local held = observed_perks()
+    if held == nil then
+        -- Inventory unreadable: fall back to what this module delivered.
+        held = {}
+        for _, fn in ipairs(want_order) do
+            local info = info_by_name[fn]
+            if info and info.cat == CAT.PERK and (have[fn] or 0) >= 1 then
+                held[#held + 1] = { full_name = fn, level = have[fn], da = info.da }
+            end
+        end
+    end
     local cands = {}
-    for _, fn in ipairs(want_order) do
-        local info = info_by_name[fn]
-        if info and info.cat == CAT.PERK and info.da and not is_greed_item(fn)
-            and (have[fn] or 0) >= 1 then
-            cands[#cands + 1] = fn
+    for _, p in ipairs(held) do
+        if p.level >= 1 and not is_greed_item(p.full_name) then
+            cands[#cands + 1] = p
         end
     end
     if #cands == 0 then return nil end
-    local fn = cands[math.random(#cands)]
-    want_add(info_by_name[fn], levels)
-    schedule_flush()
-    return info_by_name[fn].name, want[fn]
+    local pick_ = cands[math.random(#cands)]
+    local info = info_by_name[pick_.full_name]
+    if info and info.cat == CAT.PERK and info.da then
+        -- A received perk: raise the target so a reconnect or the inventory
+        -- sync keeps the levels. Anything found on top of the target counts.
+        local fn = pick_.full_name
+        want_add(info, 0)
+        want[fn] = math.max(want[fn], pick_.level) + levels
+        schedule_flush()
+        return info.name, want[fn]
+    end
+    -- A perk the server never sent: add the levels straight to the inventory.
+    if not pick_.da then return nil end
+    local tmp = { name = pick_.full_name:match("([^%.:/]+)$") or pick_.full_name,
+        full_name = pick_.full_name, da = pick_.da, cat = CAT.PERK }
+    if not (has_cpp_mod() and cpp_add_item(tmp, levels)) then return nil end
+    pcall(AP_RefreshInventoryUI)
+    return tmp.name, pick_.level + levels
 end
 
 -------------------------------------------------------------
