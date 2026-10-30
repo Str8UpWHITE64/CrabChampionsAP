@@ -26,6 +26,9 @@ PICKUP_CATEGORIES = frozenset({
     _C.PERK, _C.RELIC, _C.WEAPON_MOD, _C.MELEE_MOD, _C.ABILITY_MOD,
 })
 
+RUN_LEVEL_CATEGORIES = frozenset({_C.RUN_WEAPON, _C.RUN_MELEE, _C.RUN_ABILITY, _C.RANK_RUN})
+
+
 def biome_access(biome: int) -> Rule:
     """Rule for entering a biome (game number 1-4).
 
@@ -48,6 +51,7 @@ def set_all_rules(world: "CrabChampsWorld") -> None:
 
 def set_location_rules(world: "CrabChampsWorld") -> None:
     limit_pool = world.limit_pool
+    biome_layout = world.options.check_layout.value == 1
 
     for location in world.get_locations():
         if not hasattr(location, "category"):
@@ -58,6 +62,10 @@ def set_location_rules(world: "CrabChampsWorld") -> None:
         if location.category in BIOME_BASE_CATEGORY:
             biome = biome_index_to_biome(biome_index_from_name(location.name))
             parts.append(biome_access(biome))
+
+        if biome_layout and location.category in RUN_LEVEL_CATEGORIES:
+            # A completed run clears all four biomes, so these need every biome unlocked.
+            parts.extend(biome_access(b) for b in range(1, 5))
 
         if cat in EQUIPMENT_CATEGORIES:
             # Equipment outside the randomized pool is available from the start.
@@ -96,6 +104,9 @@ def set_completion_rule(world: "CrabChampsWorld") -> None:
         )
         if needed > 0
     ]
+    if options.check_layout.value == 1:
+        # A completed run clears all four biomes in one run, so the goal needs every biome unlocked.
+        terms.extend(biome_access(b) for b in range(1, 5))
     victory = And(*terms)
     world.set_rule(world.get_location("Victory"), victory)
     world.set_completion_rule(CanReachLocation("Victory"))

@@ -60,6 +60,8 @@ local Client = {
     _outgoing_scouts = {},   -- array of location_ids to scout
     _outgoing_say = {},      -- array of chat messages
     _outgoing_status = nil,  -- status code to send
+    _outgoing_runs = {},     -- "kind:name" entries to add to the run record in data storage
+    _completed_runs = {},    -- set of "kind:name" for equipment that finished a run through all four biomes
 
     -- Command queue (populated on the game thread, consumed by the poll)
     _pending_commands = {},  -- array of {cmd=string, args=table}
@@ -75,6 +77,7 @@ local Client = {
     on_item_send = nil,      -- function(info) — structured item send {sender, receiver, item, location, flags, is_self_send, is_self_recv}
     on_location_info = nil,  -- function(items) — scouted location info [{item, location, player, flags}, ...]
     on_location_checked = nil, -- function(location_ids) — called when locations are marked checked
+    on_runs_loaded = nil,    -- function() — the run record changed from the server
 }
 
 local LOG_PREFIX = "[CrabAP]"
@@ -282,6 +285,10 @@ function Client:_register_handlers()
             log("Dropping " .. #self._outgoing_checks .. " queued check(s) from a different seed or slot")
             self._outgoing_checks = {}
         end
+        if self._queue_identity ~= identity then
+            self._completed_runs = {}
+            self._outgoing_runs = {}
+        end
         self._queue_identity = identity
 
         -- on_slot_connected clears the inventory and the server re-sends every
@@ -305,6 +312,16 @@ function Client:_register_handlers()
             local missing = c:get_missing_locations() or {}
             local checked = c:get_checked_locations() or {}
             LocationData.set_location_allowlist(missing, checked)
+        end
+
+        -- The record of completed runs lives in the server's data storage, so it follows the slot to another PC.
+        local key = self:runs_key()
+        if key then
+            local ok, err = pcall(function()
+                c:Get({ key })
+                c:SetNotify({ key })
+            end)
+            log("Run record Get " .. key .. (ok and "" or (" FAILED: " .. tostring(err))))
         end
 
         if self.on_slot_connected then
@@ -343,6 +360,17 @@ function Client:_register_handlers()
                 pcall(self.on_location_checked, checked_ids)
             end
         end
+    end)
+
+    c:set_retrieved_handler(function(keys)
+        log("Run record retrieved")
+        local key = self:runs_key()
+        if type(keys) == "table" and key and keys[key] then self:_load_runs(keys[key]) end
+    end)
+
+    c:set_set_reply_handler(function(key, value)
+        log("Run record set_reply " .. tostring(key))
+        if key and key == self:runs_key() then self:_load_runs(value) end
     end)
 
     c:set_print_json_handler(function(data)
@@ -574,6 +602,24 @@ function Client:_process_outgoing()
             self._client:Say(tostring(text))
         end
         self._outgoing_say = {}
+    end
+
+    -- Completed-run record
+    if #self._outgoing_runs > 0 then
+        local entries = self._outgoing_runs
+        self._outgoing_runs = {}
+        local key = self:runs_key()
+        if key then
+            local ok, err = pcall(function()
+                -- The record is a dict of "kind:name" -> true: "update" merges entries, so repeats cost nothing.
+                -- (An empty Lua table is sent as a JSON object, which is the dict's default.)
+                local entry_set = {}
+                for _, e in ipairs(entries) do entry_set[e] = true end
+                self._client:Set(key, {}, false, { { "update", entry_set } })
+            end)
+            log("Run record Set " .. key .. " add " .. table.concat(entries, ", ")
+                .. (ok and "" or (" FAILED: " .. tostring(err))))
+        end
     end
 
     -- Status update
@@ -853,6 +899,46 @@ end
 -- ---------------------------------------------------------------
 -- State queries (safe from any thread)
 -- ---------------------------------------------------------------
+
+--- Data storage key of this slot's completed-run record (a list of "kind:name" strings).
+function Client:runs_key()
+    local ok, team = pcall(function() return self._client:get_team_number() end)
+    local slot = self.slot_number
+    if not slot or slot < 0 then return nil end
+    return "crabchampions_runs_" .. tostring(ok and team or 0) .. "_" .. tostring(slot)
+end
+
+function Client:_load_runs(list)
+    local n = 0
+    if type(list) == "table" then for _ in pairs(list) do n = n + 1 end end
+    log("Run record received: " .. n .. " entr" .. (n == 1 and "y" or "ies"))
+    if type(list) ~= "table" then return end
+    local added = false
+    for k, v in pairs(list) do
+        -- A dict entry is "kind:name" -> true; a plain list holds the names themselves.
+        local entry = (type(k) == "string" and v) and k or (type(v) == "string" and v or nil)
+        if entry and not self._completed_runs[entry] then
+            self._completed_runs[entry] = true
+            added = true
+        end
+    end
+    if added and self.on_runs_loaded then pcall(self.on_runs_loaded) end
+end
+
+--- Whether this equipment finished a run that reached the final island through all four biomes.
+---@param kind string "weapon", "melee" or "ability"
+function Client:is_run_completed(kind, name)
+    return self._completed_runs[kind .. ":" .. tostring(name)] == true
+end
+
+--- Remember (locally at once, and in data storage on the next poll) a completed run with this equipment.
+function Client:record_run_completed(kind, name)
+    local entry = kind .. ":" .. tostring(name)
+    if self._completed_runs[entry] then return end
+    self._completed_runs[entry] = true
+    self._outgoing_runs[#self._outgoing_runs + 1] = entry
+    log("Run completed with " .. entry)
+end
 
 function Client:is_connected()
     return self._connected

@@ -225,11 +225,13 @@ def play(options, clears, difficulty=1):
         ps = { IsValid = function() return true end,
                WeaponDA = { GetFullName = function() return "CrabWeaponDA /Game/DA/DA_Weapon_AutoRifle.DA_Weapon_AutoRifle" end } }
         FindAllOf = function(c) if c == "CrabPS" then return { ps } end end
-        sent, checked = {}, {}
+        sent, checked, runs, victories = {}, {}, {}, 0
         client = { slot_data = {},
                    is_location_checked = function(_, id) return checked[id] == true end,
                    send_check = function(_, id) checked[id] = true; sent[#sent + 1] = id end,
-                   send_victory = function() end }
+                   send_victory = function() victories = victories + 1 end,
+                   is_run_completed = function(_, k, n) return runs[k .. ":" .. n] == true end,
+                   record_run_completed = function(_, k, n) runs[k .. ":" .. n] = true end }
     """)
     rt.execute("gs.Difficulty = %d" % difficulty)  # the game enum: 1 = Bronze, 3 = Gold
     rt.execute("BL = require('AP/BiomeLock'); BL.game.gs = function() return gs end")
@@ -239,6 +241,8 @@ def play(options, clears, difficulty=1):
         rt.execute(f"gs.CurrentIsland = {island}; gs.Biome = {biome}")
         rt.execute("hooks.ClientOnClearedIsland({})" if hook == "clear" else "hooks.ClientOnEnteredPortal({})")
     play.log = [str(l) for l in rt.eval("logged").values()]
+    play.runs = sorted(str(k) for k in rt.eval("runs").keys())
+    play.victories = int(rt.eval("victories"))
     return [int(i) for i in rt.eval("sent").values()]
 
 
@@ -275,11 +279,42 @@ check(B + 28 in got and B + 29 in got and B + 1 not in got, f"loop 2 sent {got}"
 got = play("{ run_length = 28, check_layout = 1 }",
            [(7, 1, "clear"), (14, 2, "clear")])
 check(not any(1890000 + 12000 * 14 <= i < 1890000 + 12000 * 17 for i in got), f"run check on a non-final island {got}")
-got = play("{ run_length = 28, check_layout = 1 }", [(28, 4, "clear")])
-check(any(1890000 + 12000 * 14 <= i < 1890000 + 12000 * 17 for i in got), f"no run check at island 28: {got}")
+ALL_BIOMES = [(1, 1, "clear"), (8, 2, "clear"), (15, 3, "clear"), (22, 4, "clear")]
+RUN_IDS = lambda got: [i for i in got if 1890000 + 12000 * 14 <= i < 1890000 + 12000 * 17]
+got = play("{ run_length = 28, check_layout = 1 }", ALL_BIOMES + [(28, 4, "clear")])
+check(RUN_IDS(got), f"no run check at island 28: {got}")
+# Island 28 without clearing islands in all four biomes (a locked biome repeated) is not a completed run.
+for walk in ([(28, 4, "clear")], [(1, 1, "clear"), (8, 1, "clear"), (15, 1, "clear"), (22, 1, "clear"), (28, 1, "clear")],
+             ALL_BIOMES[:3] + [(28, 3, "clear")]):
+    got = play("{ run_length = 28, check_layout = 1 }", walk)
+    check(not RUN_IDS(got), f"run check without all biomes {walk}: {got}")
+    check("not a completed run" in chr(10).join(play.log), "no log line for an incomplete run")
+# Bronze goal (no Bronze checks): the final island's plain checks are ordinary checks, sent either way; the goal
+# counts only a run that cleared all four biomes, kept in the run record.
+BRONZE = "{ run_length = 28, check_layout = 1, bronze_checks = false, weapons_for_completion = 1 }"
+got = play(BRONZE, [(1, 1, "clear"), (28, 4, "clear")])
+check(any(i == B + 28 for i in got), f"Volcano Island 7 not sent without all biomes {got}")
+check(play.victories == 0 and play.runs == [],
+      f"incomplete run reached the goal: victories={play.victories} runs={play.runs}")
+got = play(BRONZE, ALL_BIOMES + [(28, 4, "clear")])
+check(play.runs == ["weapon:Auto Rifle"] and play.victories == 1,
+      f"complete run not recorded or goal not met: victories={play.victories} runs={play.runs}")
+# Silver required: the run-level checks stand in, nothing is recorded.
+got = play("{ run_length = 28, check_layout = 1, required_rank = 1, weapons_for_completion = 1 }",
+           ALL_BIOMES + [(28, 4, "clear")], difficulty=2)
+check(play.runs == [], f"separate rank recorded runs {play.runs}")
+
+# The run record uses data storage, so the client wrapper must forward those calls to the native client.
+wrapper = (REPO / "CrabChampionsAP/Scripts/AP/APClientWrapper.lua").read_text(encoding="utf-8")
+for fn in ("Get", "Set", "SetNotify", "get_team_number", "set_retrieved_handler", "set_set_reply_handler"):
+    check(f"function wrapped:{fn}(" in wrapper, f"APClientWrapper does not forward {fn}")
+
+# Island layout: island 28 alone still completes the run, as before.
+got = play("{ run_length = 28 }", [(28, 4, "clear")])
+check(any(i == 1890028 for i in got), f"island layout lost its island 28 check {got}")
 got = play("{ run_length = 56, check_layout = 1 }", [(28, 4, "clear")])
 check(not any(1890000 + 12000 * 14 <= i < 1890000 + 12000 * 17 for i in got), f"run check at island 28 of a full run {got}")
-got = play("{ run_length = 56, check_layout = 1 }", [(56, 2, "clear")])
+got = play("{ run_length = 56, check_layout = 1 }", ALL_BIOMES + [(56, 2, "clear")])
 check(any(1890000 + 12000 * 14 <= i < 1890000 + 12000 * 17 for i in got), f"no run check at island 56: {got}")
 # Island layout and seeds without check_layout: the old IDs.
 for opts in ("{ run_length = 28 }", "{ run_length = 28, check_layout = 0 }"):

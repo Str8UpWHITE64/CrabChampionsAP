@@ -979,6 +979,11 @@ APClient.on_location_info = function(items)
     on_location_info_game(items)
 end
 APClient.on_location_checked = GameThread.wrap(on_location_checked)
+-- The completed-run record arrived or changed: the goal may be met, and the checklist counts it.
+APClient.on_runs_loaded = GameThread.wrap(function()
+    PickupWatch.check_victory()
+    if APOverlay then APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, APClient) end
+end)
 APClient.on_disconnected = GameThread.wrap(function(reason)
     restore_equipment_locks()
     pcall(BiomeLock.deactivate)

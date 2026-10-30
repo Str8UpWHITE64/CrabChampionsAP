@@ -3,6 +3,7 @@ this apworld in its worlds folder, and checks location counts, rules and a full 
 """
 import itertools
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -35,7 +36,8 @@ def run(ap_dir):
         return [l.name for l in real_locations(t)]
 
     def is_biome(n):
-        return any(f"{b} " in n for b in BIOMES) and (" Island " in n or " Shop" in n)
+        # A name of a biome check, not an equipment name that happens to contain a biome word ("Ice Staff").
+        return re.match(r"(Complete|Reach) (%s) (Island|Shop)" % "|".join(BIOMES), n) is not None
 
     def cats(t):
         c = {}
@@ -131,6 +133,54 @@ def run(ap_dir):
             st.collect(w.create_item("Volcano Access"))
             if eq.access_rule(st):
                 problems.append(f"{eq.name} opened without its equipment")
+
+    # A completed run needs every biome: the run-level checks and the rank run check stay closed while one Access item is missing. Island seeds are unchanged.
+    for run_length, extra in ((28, 1), (56, 1)):
+        for layout in (1, 0):
+            t = build(check_layout=layout, run_length=run_length, biome_lock=True, starting_biome=3,
+                      pickup_checks=False, minimize_run_checks=False, extra_rank_checks=extra, max_rank=1,
+                      required_rank=0, weapons_in_pool=3, weapons_for_completion=1)
+            locs = real_locations(t)
+            held = [i for i in t.multiworld.itempool if i.name != "Tropical Access"]
+            full = CollectionState(t.multiworld)
+            part = CollectionState(t.multiworld)
+            for i in held:
+                part.collect(i)
+            for i in t.multiworld.itempool:
+                full.collect(i)
+            last = "Island 7 (Loop 2)" if run_length == 56 else "Island 7"
+            final = [l for l in locs if " with " in l.name and l.name.split(" with ")[0].endswith(last)
+                     and l.name.startswith("Complete ") and "Run" not in l.name.split(" with ")[0]]
+            runs = [l for l in locs if l.name.startswith("Complete Run")]
+            early = [l for l in locs if " with " in l.name and "Desert Island 1 " in l.name]
+            tag = f"all-biomes rule len={run_length} layout={layout}"
+            if layout == 1:
+                if not final or not runs or not early:
+                    problems.append(f"{tag}: no final-island, run or early checks to test")
+                # The final island's equipment checks are ordinary checks: only their own biome's Access item.
+                for l in final:
+                    if "Tropical" not in l.name and not l.access_rule(part):
+                        problems.append(f"{tag}: {l.name} closed though its biome is open")
+                for l in runs:
+                    if l.access_rule(part):
+                        problems.append(f"{tag}: {l.name} open without every Access item")
+                    if not l.access_rule(full):
+                        problems.append(f"{tag}: {l.name} closed with everything")
+                if any(not l.access_rule(part) for l in early):
+                    problems.append(f"{tag}: an early equipment check is closed without Tropical Access")
+                # The island 7 checks of the other layout slots (not the final one) stay open.
+                other = [l for l in locs if " with " in l.name and re.match(r"Complete \w+ Island 7 with", l.name)
+                         and l not in final and "Desert" in l.name]
+                if run_length == 56 and any(not l.access_rule(part) for l in other):
+                    problems.append(f"{tag}: first-pass island 7 check closed")
+            else:
+                held_none = CollectionState(t.multiworld)
+                for i in t.multiworld.itempool:
+                    if not i.name.endswith(" Access"):
+                        held_none.collect(i)
+                isl = [l for l in locs if l.name.startswith("Complete Island %d with" % run_length)]
+                if not isl or any(not l.access_rule(held_none) for l in isl):
+                    problems.append(f"{tag}: island seed final checks need biome access")
 
     # A real generation for a few option sets.
     sets = [

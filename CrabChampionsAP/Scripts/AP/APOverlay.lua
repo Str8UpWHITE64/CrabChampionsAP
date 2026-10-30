@@ -966,7 +966,8 @@ function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, 
         if APClient and loc_id_fn then
             if APClient.is_location_checked then
                 completed = LocationData.final_run_checked(loc_id_fn, name, req_rank,
-                    function(id) return APClient:is_location_checked(id) == true end)
+                    function(id) return APClient:is_location_checked(id) == true end,
+                    function(kind, n) return APClient.is_run_completed ~= nil and APClient:is_run_completed(kind, n) end)
             end
         end
         local marker

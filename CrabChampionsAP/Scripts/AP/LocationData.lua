@@ -746,9 +746,16 @@ end
 --- Whether an equipment run was completed on the run's final island. `loc_id_fn` is one of the
 --- *_run_location_id_by_name functions and `is_checked` takes a location ID. The island layout looks at its
 --- final-island check; the biome layout at the run-level check.
-function M.final_run_checked(loc_id_fn, name, rank, is_checked)
+--- `is_recorded(kind, name)` says whether the equipment finished a run that cleared all four biomes; the biome
+--- layout with Bronze required counts that, since its final-island checks are ordinary checks.
+function M.final_run_checked(loc_id_fn, name, rank, is_checked, is_recorded)
     local lid
-    if not M.rank_is_separate(rank) then
+    if not M.rank_is_separate(rank) and M.biome_layout and is_recorded then
+        local kind = (loc_id_fn == M.weapon_run_location_id_by_name and "weapon")
+            or (loc_id_fn == M.melee_run_location_id_by_name and "melee")
+            or (loc_id_fn == M.ability_run_location_id_by_name and "ability")
+        return kind ~= nil and is_recorded(kind, name) == true
+    elseif not M.rank_is_separate(rank) then
         -- Bronze without Bronze checks: the final island's plain check. In the
         -- biome layout the final island can be in any biome.
         if M.biome_layout then

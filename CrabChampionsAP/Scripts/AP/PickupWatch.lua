@@ -267,7 +267,8 @@ function M.check_victory()
         for _, name in ipairs(all_names) do
             if pool_set[name] or count_non_pool then
                 if LocationData.final_run_checked(loc_id_fn, name, req_rank,
-                        function(id) return client:is_location_checked(id) end) then
+                        function(id) return client:is_location_checked(id) end,
+                        function(kind, n) return client.is_run_completed and client:is_run_completed(kind, n) end) then
                     count = count + 1
                 end
             end
@@ -556,6 +557,18 @@ function M.install(ap_client)
         return cur
     end
 
+    --- Whether this run has cleared islands in all four biomes (biome layout only; the other layouts have no
+    --- such rule). A run that stays in fewer biomes (a locked biome repeats) is not a completed run.
+    local function run_covers_all_biomes()
+        if not LocationData.biome_layout then return true end
+        local seen, n = {}, 0
+        for _, b in pairs(biome_of_island) do
+            if not seen[b] then seen[b] = true; n = n + 1 end
+        end
+        return n >= 4
+    end
+    M.run_covers_all_biomes = run_covers_all_biomes
+
     --- Send all location checks for a given island number.
     --- @param num number The island number (1-based)
     --- @param label string Log prefix ("Island cleared" or "Reached shop")
@@ -715,7 +728,9 @@ function M.install(ap_client)
         end
 
         -- Run completion check (when player reaches the final island)
-        if num >= LocationData.run_length then
+        if num >= LocationData.run_length and not run_covers_all_biomes() then
+            log("Island " .. num .. " reached, but the run did not clear all four biomes — not a completed run")
+        elseif num >= LocationData.run_length then
             log("Run complete at island " .. num .. "!")
             if LocationData.extra_ranked_island_checks then
                 -- Extra ranked mode: send rank runs for all applicable ranks
@@ -769,6 +784,18 @@ function M.install(ap_client)
                                 ) end
                             end
                         end
+                    end
+                end
+            end
+
+            -- Bronze has no run-level check, and the final island's equipment checks are ordinary checks that
+            -- send whatever the run was. The goal counts the equipment of runs that cleared all four biomes,
+            -- kept in the server's data storage.
+            if LocationData.biome_layout and not LocationData.rank_is_separate(LocationData.required_rank)
+                    and client.record_run_completed then
+                for _, k in ipairs({ { "weapon", weapon_fn }, { "melee", melee_fn }, { "ability", ability_fn } }) do
+                    if k[2] then
+                        client:record_run_completed(k[1], LocationData.equipment_name(k[1], k[2]))
                     end
                 end
             end

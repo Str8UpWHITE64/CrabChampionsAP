@@ -158,6 +158,24 @@ function APClientWrapper.new(uuid, game_name, server)
     -- Name resolution (provided by apclientpp after data package loads)
     -- ---------------------------------------------------------------
 
+    --- Data storage: read keys (answered through the retrieved handler), subscribe to changes (set_reply
+    --- handler) and update a key with operations such as {"add", value}.
+    function wrapped:Get(keys)
+        return safe_call("Get", keys)
+    end
+
+    function wrapped:SetNotify(keys)
+        return safe_call("SetNotify", keys)
+    end
+
+    function wrapped:Set(key, default, want_reply, operations)
+        return safe_call("Set", key, default, want_reply, operations)
+    end
+
+    function wrapped:get_team_number()
+        return safe_call("get_team_number")
+    end
+
     function wrapped:get_player_alias(slot)
         return safe_call("get_player_alias", slot)
     end
