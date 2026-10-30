@@ -113,8 +113,7 @@ function Console.init(ap_client, cfg_path)
 
     -- Print help banner
     Console.log("INFO", "=== Archipelago Controls ===")
-    Console.log("INFO", "  F3 = Connect/Disconnect (overlay)")
-    Console.log("INFO", "  F4 = Toggle AP overlay panel")
+    Console.log("INFO", "  Archipelago button in the pause menu = connection window")
     Console.log("INFO", "  F7 = Reload config")
     Console.log("INFO", "  F8 = Show status")
     Console.log("INFO", "Open console with ~ (tilde)")

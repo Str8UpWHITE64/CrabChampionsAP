@@ -23,10 +23,10 @@ local VIS_HIT_INVIS = 3       -- visible but not interactable
 local VIS_SELF_HIT_INVIS = 4  -- visible, children interactable, self not
 
 -- Connect button labels
-local HINT_IDLE = "Connect   (F3)"
-local HINT_CONNECTED = "Disconnect   (F3)"
-local HINT_CONNECTING = "Connecting...   (click or F3 to try again)"
-local CLOSE_HINT = "F4 closes this window"
+local HINT_IDLE = "Connect"
+local HINT_CONNECTED = "Disconnect"
+local HINT_CONNECTING = "Connecting...   (click to try again)"
+local CLOSE_LABEL = "Close"
 
 -- ============================================================================
 -- Helpers
@@ -66,8 +66,9 @@ local overlay = {
     password_input = nil,
 
     -- Buttons
-    connect_btn = nil,   -- Button (click = F3)
+    connect_btn = nil,   -- Button (click = connect)
     connect_btn_text = nil,
+    close_btn = nil,     -- Button (click = hide the window)
     error_text = nil,    -- plain-words reason the last connect failed
     info_text = nil,     -- slot, seed, counts while connected
 
@@ -135,6 +136,7 @@ local function is_alive()
         overlay.password_input = nil
         overlay.connect_btn = nil
         overlay.connect_btn_text = nil
+        overlay.close_btn = nil
         overlay.error_text = nil
         overlay.info_text = nil
         overlay.equip_weapons_text = nil
@@ -415,7 +417,7 @@ function APOverlay.create(ap_config)
 
     add_spacer(overlay.conn_vbox, "APSpacer4", 10)
 
-    -- Connect button (a click does what F3 does). Not focusable, so Space or Enter while playing never presses it.
+    -- Connect button (a click connects, disconnects or retries). Not focusable, so Space or Enter while playing never presses it.
     overlay.connect_btn = make("/Script/UMG.Button", overlay.conn_vbox, "APConnectButton")
     if overlay.connect_btn then
         pcall(function() overlay.connect_btn.IsFocusable = false end)
@@ -431,8 +433,22 @@ function APOverlay.create(ap_config)
     end
     shown.connect_btn_text = HINT_IDLE
 
-    local close_hint = make_text(overlay.conn_vbox, "APCloseHint", CLOSE_HINT, 12, { 0.7, 0.7, 0.7, 1 })
-    if close_hint then overlay.conn_vbox:AddChildToVerticalBox(close_hint) end
+    -- Close button (a click hides the window). Not focusable, for the same reason.
+    overlay.close_btn = make("/Script/UMG.Button", overlay.conn_vbox, "APCloseButton")
+    if overlay.close_btn then
+        pcall(function() overlay.close_btn.IsFocusable = false end)
+        pcall(function() overlay.close_btn:SetBackgroundColor(FLinearColor(0.45, 0.45, 0.5, 1)) end)
+        local ct = make_text(overlay.close_btn, "APCloseButtonText", CLOSE_LABEL, 16, { 1, 1, 1, 1 })
+        if ct then
+            pcall(function()
+                local s = overlay.close_btn:SetContent(ct)
+                if s then s:SetPadding({ Left = 15, Top = 6, Right = 15, Bottom = 6 }) end
+            end)
+        end
+        add_spacer(overlay.conn_vbox, "APSpacerClose", 6)
+        overlay.conn_vbox:AddChildToVerticalBox(overlay.close_btn)
+    end
+
 
     overlay.error_text = make_text(overlay.conn_vbox, "APErrorText", "", 15, { 1, 0.55, 0.45, 1 })
     if overlay.error_text then
@@ -520,6 +536,12 @@ function APOverlay.create(ap_config)
     ClickWatch.watch("connect",
         function() return overlay.connect_btn end,
         function(source) APOverlay.request_connect(source) end,
+        function() return panel_shown and overlay.initialized end)
+
+    -- Clicks on the Close button: hides the window and gives the pointer back.
+    ClickWatch.watch("close",
+        function() return overlay.close_btn end,
+        function() APOverlay.hide_panel() end,
         function() return panel_shown and overlay.initialized end)
 
     -- Apply any queued state
@@ -672,12 +694,6 @@ local function set_panel(shown)
     end
 end
 
-function APOverlay.toggle_panel()
-    if not is_alive() or not overlay.conn_panel then return end
-    set_panel(not panel_shown)
-    log("Connection panel " .. (panel_shown and "shown" or "hidden"))
-end
-
 function APOverlay.show_panel()
     if not is_alive() or not overlay.conn_panel then return end
     if panel_shown then return end
@@ -723,7 +739,7 @@ function APOverlay.clear_progress()
 end
 
 -- ----------------------------------------------------------------------------
--- Connect requests. main.lua gives the function F3 runs; the Connect button runs the very same one.
+-- Connect requests. main.lua gives the connect function; the Connect button runs the very same one.
 -- ----------------------------------------------------------------------------
 local connect_handler = nil
 local connect_requests = 0
@@ -732,7 +748,7 @@ function APOverlay.set_connect_handler(fn)
     connect_handler = fn
 end
 
---- Connect, disconnect or retry, exactly as F3 does. `source` is only for the log and readback ("F3", "pointer"...).
+--- Connect, disconnect or retry, `source` is only for the log and readback ("pointer", "test"...).
 function APOverlay.request_connect(source)
     connect_requests = connect_requests + 1
     shown.connect_source = tostring(source or "?")
@@ -897,6 +913,8 @@ function APOverlay.get_shown()
     local out = { state = overlay.state, panel = panel_shown,
                   connect_button = overlay.connect_btn ~= nil,
                   connect_clicks = ClickWatch.counts.connect or 0,
+                  close_button = overlay.close_btn ~= nil,
+                  close_clicks = ClickWatch.counts.close or 0,
                   pointer_captured = cursor_state ~= nil }
     for k, v in pairs(shown) do out[k] = v end
     return out

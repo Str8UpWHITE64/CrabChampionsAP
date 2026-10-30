@@ -1,5 +1,5 @@
 -- AP/ConnStatus.lua
--- Plain-word connection messages and the connect timeout for the F4 panel.
+-- Plain-word connection messages and the connect timeout for the connection window.
 -- No game calls in here, so tools/test_connstatus.py can run it on its own.
 
 local ConnStatus = {}

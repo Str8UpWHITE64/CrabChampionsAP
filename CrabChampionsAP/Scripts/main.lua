@@ -1123,22 +1123,7 @@ if APOverlay then
     AP.Overlay = APOverlay
 end
 
--- Overlay keybinds
--- F4: Toggle connection/progress panel
-RegisterKeyBind(Key.F4, GameThread.signal(function()
-    GameThread.run(function()
-        if APOverlay then
-            if not APOverlay.is_initialized() then try_create_overlay() end
-            if APOverlay.is_initialized() then
-                APOverlay.toggle_panel()
-            else
-                log("Overlay not available (game not fully loaded?)")
-            end
-        end
-    end)
-end))
-
--- Connect/disconnect using the overlay's input fields. F3 and the panel's Connect button both run this,
+-- Connect/disconnect using the overlay's input fields. the panel's Connect button runs this,
 -- on the game thread.
 local function toggle_connection(source)
     if APClient:is_slot_connected() or APClient:is_connected() then
@@ -1165,17 +1150,6 @@ end
 if APOverlay and APOverlay.set_connect_handler then
     APOverlay.set_connect_handler(toggle_connection)
 end
-
--- F3: same as clicking Connect
-RegisterKeyBind(Key.F3, GameThread.signal(function()
-    GameThread.run(function()
-        if APOverlay and APOverlay.request_connect then
-            APOverlay.request_connect("F3")
-        else
-            toggle_connection("F3")
-        end
-    end)
-end))
 
 -- "Archipelago" button in the pause menu: opens the connection window.
 if APOverlay then
@@ -1456,7 +1430,7 @@ RegisterKeyBind(Key.F11, GameThread.signal(function()
     end)
 end))
 
-log("  F1 = Lock to Auto Rifle | F2 = Unlock Crossbow | F3 = Connect | F4 = Overlay | F9 = Dump pickup data | F11 = Toggle unlock all")
+log("  F1 = Lock to Auto Rifle | F2 = Unlock Crossbow | F9 = Dump pickup data | F11 = Toggle unlock all")
 
 -- Every hook is registered: the scheduler may start running work on the game thread (after a short grace).
 GameThread.loaded()

@@ -114,11 +114,11 @@ function Client:init(config_path)
         log("WARNING: No slot name configured in ap_config.json")
     end
 
-    -- Do NOT auto-connect — wait for explicit connect command (F3 / F6)
+    -- Do NOT auto-connect — wait for explicit connect command (connection window / F6)
     self._deferred_init = false
     self.enabled = true
     log("Config loaded (server=" .. self.server .. ", slot=" .. self.slot .. ")")
-    log("Press F3 to connect or F4 to open the connection panel")
+    log("Pick Archipelago in the pause menu to open the connection window")
 
     -- Start the async loop — ALL DLL interaction happens here
     self:_start_async_loop()
@@ -705,7 +705,7 @@ function Client:_execute_command(cmd, args)
         if self.on_disconnected then pcall(self.on_disconnected, args.reason) end
 
     elseif cmd == "connect" then
-        -- server/slot/password are already set by the caller (F3 reads from
+        -- server/slot/password are already set by the caller (the connection window reads from
         -- overlay inputs, F6 uses current values).  Only reload from config
         -- file if the caller explicitly asks via reload_and_connect.
         -- Reset state for fresh connection

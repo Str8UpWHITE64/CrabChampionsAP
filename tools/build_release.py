@@ -133,7 +133,7 @@ def install_txt(version: str) -> str:
         "     C:\\Program Files (x86)\\Steam\\steamapps\\common\\Crab Champions\\\r\n"
         "2. Drag the CrabChampions folder from this zip into it and let Windows\r\n"
         "   merge folders and replace files.\r\n"
-        "3. Launch the game. Press F4 to open the connection panel and F3 to connect.\r\n"
+        "3. Launch the game. Pick Archipelago in the pause menu to open the connection window, then click Connect.\r\n"
         "\r\n"
         "This replaces Mods\\mods.txt and UE4SS-settings.ini. If you run other UE4SS\r\n"
         "mods, add their lines back to mods.txt above the Keybinds line.\r\n"

@@ -278,9 +278,9 @@ s = O.get_shown()
 check("readback names the source", s["connect_source"] == "pointer" and s["connect_requests"] == 1, str(dict(s)))
 check("click counted", s["connect_clicks"] == 1)
 
-# F3 goes through the same entry point.
-O.request_connect("F3")
-check("F3 same handler", lua.eval("#connect_calls") == 2 and lua.eval("connect_calls[2]") == "F3")
+# A direct request goes through the same entry point.
+O.request_connect("direct")
+check("direct request same handler", lua.eval("#connect_calls") == 2 and lua.eval("connect_calls[2]") == "direct")
 
 # The test/debug click runs the same action as the pointer.
 O.click("connect")
@@ -333,27 +333,27 @@ PB.tick()
 st = PB.state()
 check("button added", st["button"] is True and st["box_class"] == "VerticalBox", str(dict(st)))
 names = box_names()
-check("appended to the box", names.split(",")[-1].startswith("APArchipelagoButton") and names.count("AP") == 1,
+check("first in the box", names.split(",")[0].startswith("APArchipelagoButton") and names.count("AP") == 1,
       names)
 check("upper-case label like the menu",
-      lua.eval("rawget(rawget(menu._box, '_children')[4], '_children')[1]:GetText():ToString()") == "ARCHIPELAGO")
+      lua.eval("rawget(rawget(menu._box, '_children')[1], '_children')[1]:GetText():ToString()") == "ARCHIPELAGO")
 diff = lua.eval("(function() local d = require('AP/PauseButton').compare(); return d and table.concat(d, ',') end)()")
 check("looks like Resume (style, font, text and row slot)", diff == "", str(diff))
 check("font copied field by field",
-      lua.eval("rawget(rawget(menu._box, '_children')[4], '_children')[1].Font.Size") == 30)
+      lua.eval("rawget(rawget(menu._box, '_children')[1], '_children')[1].Font.Size") == 30)
 check("see-through brush copied",
-      lua.eval("rawget(rawget(menu._box, '_children')[4], '_props').WidgetStyle.Normal.TintColor.SpecifiedColor.A") == 0)
-check("row spacing copied", lua.eval("rawget(rawget(menu._box, '_children')[4], '_props').Slot.Padding.Top") == 8)
-lua.execute("rawget(rawget(menu._box, '_children')[4], '_props').WidgetStyle.Hovered.TintColor.SpecifiedColor.A = 0.9")
+      lua.eval("rawget(rawget(menu._box, '_children')[1], '_props').WidgetStyle.Normal.TintColor.SpecifiedColor.A") == 0)
+check("row spacing copied", lua.eval("rawget(rawget(menu._box, '_children')[1], '_props').Slot.Padding.Top") == 8)
+lua.execute("rawget(rawget(menu._box, '_children')[1], '_props').WidgetStyle.Hovered.TintColor.SpecifiedColor.A = 0.9")
 diff = lua.eval("(function() local d = require('AP/PauseButton').compare(); return d and table.concat(d, ',') end)()")
 check("compare notices a difference", "button.WidgetStyle.Hovered.TintColor.SpecifiedColor.A" in str(diff), str(diff))
-lua.execute("rawget(rawget(menu._box, '_children')[4], '_props').WidgetStyle.Hovered.TintColor.SpecifiedColor.A = 0.3")
+lua.execute("rawget(rawget(menu._box, '_children')[1], '_props').WidgetStyle.Hovered.TintColor.SpecifiedColor.A = 0.3")
 PB.tick()
 PB.tick()
 check("added once", box_names().count("APArchipelago") == 1, box_names())
 
 # Clicking it: game's Resume, then the window opens. Only read while the menu is on screen.
-lua.execute("pbtn = rawget(menu._box, '_children')[4]")
+lua.execute("pbtn = rawget(menu._box, '_children')[1]")
 lua.execute("rawget(menu, '_props').IsInViewport = function() return false end")
 PB.tick()
 press("pbtn", True)
@@ -379,7 +379,7 @@ menu_case("{lower = true}")
 PB.tick()
 check("new menu gets a button", box_names().count("APArchipelago") == 1, box_names())
 check("label case follows the menu",
-      lua.eval("rawget(rawget(menu._box, '_children')[4], '_children')[1]:GetText():ToString()") == "Archipelago")
+      lua.eval("rawget(rawget(menu._box, '_children')[1], '_children')[1]:GetText():ToString()") == "Archipelago")
 
 # Left over from an earlier load of the mod: reused, not doubled.
 lua.execute("menu = make_menu({}); add_child(menu._box, new_obj('Button', 'APArchipelagoButton_9_9'))"
@@ -392,9 +392,9 @@ check("existing button reused", st["adopted"] is True and box_names().count("APA
 # Buttons inside SizeBoxes: the copy gets a SizeBox too.
 menu_case("{wrap = true}")
 PB.tick()
-last = lua.eval("rawget(rawget(menu._box, '_children')[4], '_cls')")
+last = lua.eval("rawget(rawget(menu._box, '_children')[1], '_cls')")
 check("wrapped like the others", last == "SizeBox", str(last))
-check("wrapper keeps the width", lua.eval("rawget(rawget(menu._box, '_children')[4], '_props').WidthOverride") == 320)
+check("wrapper keeps the width", lua.eval("rawget(rawget(menu._box, '_children')[1], '_props').WidthOverride") == 320)
 
 # Unexpected layouts: nothing added, no error, and it gives up for that menu.
 menu_case("{box = 'CanvasPanel'}")

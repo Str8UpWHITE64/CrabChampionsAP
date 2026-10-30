@@ -7,6 +7,7 @@
 -- control. When the layout is not the expected one (Resume missing, or not in a vertical, horizontal, wrap or
 -- scroll box), nothing is added and one line is logged.
 --
+-- It is placed first in that panel (the other rows are re-added after it with their slot settings).
 -- Clicking it presses the menu's own Resume (the game closes the menu and gives the input back) and then opens
 -- the connection window, which turns the pointer on for itself.
 
@@ -252,15 +253,43 @@ function M.differences(a, b)
     return diff
 end
 
-local function copy_slot(from_slot, to_slot)
-    if not (from_slot and to_slot) then return end
-    local f = M.read_fields(from_slot, M.SLOT_LOOK)
+local function apply_slot(f, to_slot)
+    if not (f and to_slot) then return end
     if f.Padding then pcall(function() to_slot:SetPadding(f.Padding) end) end
     if f.HorizontalAlignment ~= nil then pcall(function() to_slot:SetHorizontalAlignment(f.HorizontalAlignment) end) end
     if f.VerticalAlignment ~= nil then pcall(function() to_slot:SetVerticalAlignment(f.VerticalAlignment) end) end
     if f.Size then pcall(function() to_slot:SetSize(f.Size) end) end
     -- and the fields themselves, for a slot whose widget is not built yet
+end
+
+local function copy_slot(from_slot, to_slot)
+    if not (from_slot and to_slot) then return end
+    apply_slot(M.read_fields(from_slot, M.SLOT_LOOK), to_slot)
+    -- and the fields themselves, for a slot whose widget is not built yet
     M.copy_fields(from_slot, to_slot, M.SLOT_LOOK)
+end
+
+--- Put `row` first in `box`. A UMG panel cannot insert at a position from Lua, so the other rows are taken out and
+--- added back after it, each with the slot settings it had (padding, alignment, size). Nothing is done when `row`
+--- is already first.
+function M.move_first(box, row)
+    local n = tonumber(try(function() return box:GetChildrenCount() end)) or 0
+    if n < 2 then return true end
+    local first = try(function() return box:GetChildAt(0) end)
+    if addr(first) == addr(row) then return true end
+    local others = {}
+    for i = 0, n - 1 do
+        local c = try(function() return box:GetChildAt(i) end)
+        if valid(c) and addr(c) ~= addr(row) then
+            others[#others + 1] = { w = c, f = M.read_fields(try(function() return c.Slot end), M.SLOT_LOOK) }
+        end
+    end
+    local ours = M.read_fields(try(function() return row.Slot end), M.SLOT_LOOK)
+    pcall(function() row:RemoveFromParent() end)
+    for _, o in ipairs(others) do pcall(function() o.w:RemoveFromParent() end) end
+    apply_slot(ours, try(function() return box:AddChild(row) end))
+    for _, o in ipairs(others) do apply_slot(o.f, try(function() return box:AddChild(o.w) end)) end
+    return true
 end
 
 --- Give our button and its text the template's look. Writes only to our own widgets.
@@ -312,6 +341,7 @@ local function build(menu)
         apply_look(existing, M.find_text(existing), template, M.find_text(template))
         pcall(function() existing:SynchronizeProperties() end)
         copy_slot(try(function() return row.Slot end), try(function() return existing_row.Slot end))
+        pcall(M.move_first, box, existing_row)
         return existing, existing_row
     end
 
@@ -352,6 +382,7 @@ local function build(menu)
     local slot = try(function() return box:AddChild(new_row) end)
     if not slot then return nil, "could not add to the " .. tostring(state.box_class) end
     copy_slot(try(function() return row.Slot end), slot)
+    pcall(M.move_first, box, new_row)
     state.added = state.added + 1
     return btn, new_row
 end

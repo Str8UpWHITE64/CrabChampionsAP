@@ -3,7 +3,7 @@
 The slot connect handler in main.lua clears the inventory, and the server
 re-sends all items after Connected. When the socket drops mid-run the native
 client reconnects by itself, so APClient has to replay from index 0 there too,
-not only on the F3 connect command. Runs APClient.lua against a stub client.
+not only on a plain connect command. Runs APClient.lua against a stub client.
 
     pip install lupa
     python tools/test_reconnect.py
