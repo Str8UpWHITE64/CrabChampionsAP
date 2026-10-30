@@ -180,9 +180,37 @@ end
 -- debug tools can read it back without touching widgets.
 local shown = {}
 
+-- A problem with the install (see APOverlay.set_settings_warning), shown under
+-- whatever the error line says.
+local settings_warning = nil
+local error_raw = ""
+
+local function with_warning(text)
+    text = text or ""
+    if not settings_warning then return text end
+    if text == "" then return settings_warning end
+    return text .. "\n" .. settings_warning
+end
+
 local function put(key, text)
-    shown[key] = text or ""
+    text = text or ""
+    if key == "error_text" then
+        error_raw = text
+        text = with_warning(text)
+    end
+    shown[key] = text
     set_text(overlay[key], text)
+end
+
+local function set_error_shown(text)
+    error_raw = text or ""
+    shown.error_text = with_warning(error_raw)
+end
+
+--- Keep a warning about the install on the panel's error line (nil clears it).
+function APOverlay.set_settings_warning(msg)
+    settings_warning = (msg ~= nil and msg ~= "") and tostring(msg) or nil
+    put("error_text", error_raw)
 end
 
 local MAX_LINE_CHARS = 55
@@ -392,7 +420,10 @@ function APOverlay.create(ap_config)
     end
 
     overlay.error_text = make_text(overlay.conn_vbox, "APErrorText", "", 15, { 1, 0.55, 0.45, 1 })
-    if overlay.error_text then overlay.conn_vbox:AddChildToVerticalBox(overlay.error_text) end
+    if overlay.error_text then
+        overlay.conn_vbox:AddChildToVerticalBox(overlay.error_text)
+        if settings_warning then put("error_text", error_raw) end
+    end
 
     add_spacer(overlay.conn_vbox, "APSpacer5", 12)
 
@@ -740,7 +771,7 @@ function APOverlay.set_disconnected(reason)
     overlay.state = "idle"
     conn_gen = conn_gen + 1
     local friendly = ConnStatus.friendly(reason)
-    shown.error_text = friendly
+    set_error_shown(friendly)
     if not is_alive() then
         queued_connected = false
         return
@@ -758,7 +789,7 @@ function APOverlay.set_connecting(server)
     overlay.state = "connecting"
     overlay.connecting_since = os.clock()
     overlay.connect_server = server or overlay.connect_server
-    shown.error_text = ""
+    set_error_shown("")
     start_timeout_watch()
     if not is_alive() then
         queued_status = { text = "AP: Connecting...", r = 1, g = 1, b = 0.3 }

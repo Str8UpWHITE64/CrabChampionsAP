@@ -67,4 +67,34 @@ function ConnStatus.info_text(d)
     return table.concat(lines, "\n")
 end
 
+--- The warning for a UE4SS-settings.ini whose HookLoadMap isn't 0, or nil when it is.
+--- UE4SS hooks LoadMap when the line is missing, so a missing line warns too.
+function ConnStatus.settings_warning(ini_text)
+    if type(ini_text) ~= "string" then return nil end
+    local value = nil
+    for line in (ini_text .. "\n"):gmatch("([^\n]*)\n") do
+        local v = line:match("^%s*HookLoadMap%s*=%s*([^%s;]*)")
+        if v then value = v end
+    end
+    if value == "0" then return nil end
+    return "UE4SS-settings.ini has HookLoadMap "
+        .. (value and ("= " .. value) or "missing")
+        .. ", which can crash the game while it loads. Replace it with the"
+        .. " UE4SS-settings.ini from the mod's release."
+end
+
+--- Read the settings file (path relative to the game exe) and return its warning, or nil.
+--- Says nothing when the file can't be read.
+function ConnStatus.read_settings_warning(path)
+    local ok, text = pcall(function()
+        local f = io.open(path or "UE4SS-settings.ini", "r")
+        if not f then return nil end
+        local t = f:read("*a")
+        f:close()
+        return t
+    end)
+    if not ok or type(text) ~= "string" then return nil end
+    return ConnStatus.settings_warning(text)
+end
+
 return ConnStatus

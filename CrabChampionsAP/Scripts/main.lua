@@ -1180,6 +1180,19 @@ if APOverlay and APOverlay.set_info_provider then
     end)
 end
 
+-- An old UE4SS-settings.ini that still hooks LoadMap crashes the game while it
+-- loads. Only reads the file next to the game exe; no game calls.
+do
+    local ok, ConnStatus = pcall(require, "AP/ConnStatus")
+    local warning = ok and ConnStatus.read_settings_warning("UE4SS-settings.ini") or nil
+    if warning then
+        log("WARNING: " .. warning)
+        if APOverlay and APOverlay.set_settings_warning then
+            pcall(APOverlay.set_settings_warning, warning)
+        end
+    end
+end
+
 -- Close the panel (and give the pointer back) when a run starts or ends, or the player is eliminated.
 do
     local last_lobby = nil

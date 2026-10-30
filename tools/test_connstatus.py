@@ -148,6 +148,28 @@ O.set_connected("Crab")
 lua.execute("clock = 300; run_loops()")
 check("no timeout after connect", g.calls_made is None)
 
+# --- UE4SS settings warning ------------------------------------------------
+REL_INI = (REPO / "third_party/UE4SS/v3.0.1/UE4SS-settings.ini").read_text(encoding="utf-8")
+check("release settings file: no warning", CS.settings_warning(REL_INI) is None)
+check("HookLoadMap = 0: no warning", CS.settings_warning("[Hooks]\r\nHookLoadMap = 0\r\n") is None)
+w_on = CS.settings_warning("[Hooks]\nHookLoadMap = 1 ; default\n")
+check("HookLoadMap = 1 warns", w_on is not None and "HookLoadMap = 1" in w_on, repr(w_on))
+w_missing = CS.settings_warning("[Hooks]\nHookProcessEvent = 1\n")
+check("missing line warns", w_missing is not None and "missing" in w_missing, repr(w_missing))
+check("commented line doesn't count", CS.settings_warning(";HookLoadMap = 0\n") is not None)
+check("no text, no warning", CS.settings_warning(None) is None)
+check("unreadable file, no warning", CS.read_settings_warning("no/such/UE4SS-settings.ini") is None)
+
+O.set_settings_warning(w_on)
+check("warning shown on the error line", shown()["error_text"] == w_on, repr(shown()["error_text"]))
+O.set_disconnected("Refused: InvalidSlot")
+err = shown()["error_text"] or ""
+check("warning kept under a refusal", err.startswith("Slot name not found") and err.endswith(w_on), repr(err))
+O.set_connecting("x:1")
+check("warning kept while connecting", shown()["error_text"] == w_on, repr(shown()["error_text"]))
+O.set_settings_warning(None)
+check("warning cleared", shown()["error_text"] == "", repr(shown()["error_text"]))
+
 if problems:
     print("FAILED:")
     for p in problems:

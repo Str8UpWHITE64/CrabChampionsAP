@@ -375,7 +375,7 @@ function M.install(ap_client)
     -- aren't finds. The interact event carries the pickup actor; the pickup
     -- event that follows only has the item.
     -- ---------------------------------------------------------------
-    local pending_pickup = nil   -- { full_name = string, is_find = bool }
+    local pending_pickup = nil   -- { da_addr = integer, is_find = bool }
     local pickup_class = nil
 
     -- Portals, chests and totems also go through ServerInteract, and
@@ -393,18 +393,22 @@ function M.install(ap_client)
         return fn:find("^CrabInteractPickup ") ~= nil or fn:find("^BP_Pickup_") ~= nil
     end
 
+    -- PickupInfo.OwningPS can still point at a player state the game has
+    -- already destroyed (seen right after the final island). Reading it from
+    -- Lua wraps the pointer and crashes the game, so the dll compares it as a
+    -- raw pointer instead. Without that dll function the origin stays unknown
+    -- and the pickup counts as a find.
     RegisterHook("/Script/CrabChampions.CrabPlayerC:ServerInteract", function(Context, Actor)
         pending_pickup = nil
+        if type(AP_PickupIsFind) ~= "function" then return end
         local actor = Actor and Actor.get and Actor:get() or nil
         if not actor or not actor:IsValid() or not is_item_pickup(actor) then return end
         pcall(function()
-            local info = actor.PickupInfo
-            local player_ps = get_full_name(Context:get().PlayerState)
-            local owner = get_full_name(info.OwningPS)
-            pending_pickup = {
-                full_name = get_full_name(info.PickupDA),
-                is_find = (owner ~= nil and owner == player_ps) or (tonumber(info.Cost) or 0) > 0,
-            }
+            local ps = Context:get().PlayerState
+            local ps_addr = (ps and ps:IsValid()) and ps:GetAddress() or 0
+            local is_find, da_addr = AP_PickupIsFind(actor:GetAddress(), ps_addr)
+            if is_find == nil then return end
+            pending_pickup = { da_addr = da_addr, is_find = is_find }
         end)
     end)
 
@@ -467,7 +471,12 @@ function M.install(ap_client)
         -- available) fall back to treating it as one.
         local origin = pending_pickup
         pending_pickup = nil
-        if origin and origin.full_name == full_name and not origin.is_find then
+        local pickup_addr = nil
+        if origin then
+            local ok, addr = pcall(function() return pickup:GetAddress() end)
+            pickup_addr = ok and addr or nil
+        end
+        if origin and pickup_addr ~= nil and origin.da_addr == pickup_addr and not origin.is_find then
             log("Not a find (dropped, lobby or mod-spawned), ignored: " .. full_name)
             if lifted_kind then strip_later(lifted_kind, full_name, pickup) end
             return

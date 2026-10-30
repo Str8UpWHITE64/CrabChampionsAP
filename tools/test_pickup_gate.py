@@ -57,8 +57,12 @@ end
 FindAllOf = function(name) if name == "CrabPS" then return { ps } end end
 FindFirstOf = function() return nil end
 
+da_addrs = {}
 function da(class, leaf)
-    return { GetFullName = function() return class .. " /Game/Data/" .. leaf .. "." .. leaf end,
+    local full = class .. " /Game/Data/" .. leaf .. "." .. leaf
+    if not da_addrs[full] then da_addrs[full] = 1000 + #leaf * 7 + #class end
+    return { GetFullName = function() return full end,
+             GetAddress = function() return da_addrs[full] end,
              PerkType = 42, RelicType = 42, WeaponModType = 42 }
 end
 function ref(v) return { get = function() return v end } end
@@ -208,6 +212,56 @@ expect("first pickup sends", first, (1, 1))
 expect("already checked, free slot", pick("CrabPerkDA", "DA_Perk_GiantSlayer", False), (0, 0))
 # the same pickup if the dll lifted it by mistake: still stripped, nothing sent
 expect("already checked but lifted", pick("CrabPerkDA", "DA_Perk_GiantSlayer", True), (0, 1))
+
+# --- where a pickup came from, decided by the dll --------------------------
+# PickupInfo.OwningPS can be a destroyed player state, so the interact hook
+# must never read PickupInfo from Lua; the dll compares the raw pointers.
+lua.execute("""
+actors = {}
+function AP_PickupIsFind(actor_addr, ps_addr)
+    local a = actors[actor_addr]
+    if not a then return nil end
+    return (a.owner == ps_addr) or a.cost > 0, a.da
+end
+""")
+
+
+def pick_from(owner_is_player, cost, known=True, other_da=False):
+    """A pickup whose origin the dll reports; returns (sent, pickup info read from Lua)."""
+    reset()
+    lua.execute("removed = {}; sent = {}; gate.lifts = {}; info_read = false")
+    lua.execute("package.loaded['AP/ItemApply'].unlocked = {}")
+    lua.execute(f"""
+        local player_ps = {{ IsValid = function() return true end, GetAddress = function() return 777 end }}
+        local picked = da("CrabPerkDA", "DA_Perk_GiantSlayer")
+        local interacted = {"da('CrabPerkDA', 'DA_Perk_Charger')" if other_da else "picked"}
+        local actor = setmetatable({{
+            IsValid = function() return true end,
+            IsA = function() return true end,
+            GetAddress = function() return 5150 end,
+            GetFullName = function() return "CrabInteractPickup /Game/Level.Pickup" end,
+        }}, {{ __index = function(_, k) if k == "PickupInfo" then info_read = true end end }})
+        if {str(known).lower()} then
+            actors[5150] = {{ owner = {"777" if owner_is_player else "999"}, cost = {cost},
+                              da = interacted:GetAddress() }}
+        else
+            actors[5150] = nil
+        end
+        local ctx = ref({{ PlayerState = player_ps }})
+        hooks["/Script/CrabChampions.CrabPlayerC:ServerInteract"](ctx, ref(actor))
+        hooks["/Script/CrabChampions.CrabPC:ClientOnPickedUpPickup"](ctx, ref(picked))
+    """)
+    L.run_loops()
+    return len(L.sent), L.info_read
+
+
+expect("earned by the player is a find", pick_from(True, 0), (1, False))
+expect("someone else's, free: not a find", pick_from(False, 0), (0, False))
+expect("bought is a find", pick_from(False, 500), (1, False))
+expect("dll can't read it: counts as a find", pick_from(False, 0, known=False), (1, False))
+expect("interact for another item: counts as a find", pick_from(False, 0, other_da=True), (1, False))
+lua.execute("AP_PickupIsFind = nil")
+expect("older dll: counts as a find", pick_from(False, 0), (1, False))
 
 if problems:
     print("FAILED")
