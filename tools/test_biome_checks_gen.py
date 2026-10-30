@@ -8,7 +8,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-BIOMES = ["Tropical", "Arctic", "Desert", "Volcanic"]
+BIOMES = ["Tropical", "Ice", "Desert", "Volcano"]
 
 
 def run(ap_dir):
@@ -96,10 +96,10 @@ def run(ap_dir):
 
     if len(plain(s)) != 28 or len(plain(f)) != 56:
         problems.append(f"plain island checks: short {len(plain(s))} (want 28), full {len(plain(f))} (want 56)")
-    for want in ("Complete Tropical Island 3", "Reach Arctic Shop", "Complete Volcanic Island 7"):
+    for want in ("Complete Tropical Island 3", "Reach Ice Shop", "Complete Volcano Island 7"):
         if want not in names(s):
             problems.append(f"short run is missing {want}")
-    for want in ("Complete Tropical Island 3 (Loop 2)", "Reach Arctic Shop (Loop 2)"):
+    for want in ("Complete Tropical Island 3 (Loop 2)", "Reach Ice Shop (Loop 2)"):
         if want not in names(f):
             problems.append(f"full run is missing {want}")
         if want in names(s):
@@ -121,14 +121,14 @@ def run(ap_dir):
                 problems.append(f"lock={lock}: {l.name} open={open_now}, expected {should}")
                 break
         if lock:
-            state.collect(w.create_item("Arctic Access"))
-            if not t.multiworld.get_location("Complete Arctic Island 2 (Loop 2)", 1).access_rule(state):
-                problems.append("Arctic Access did not open an Arctic Loop 2 check")
-            if t.multiworld.get_location("Complete Volcanic Island 2", 1).access_rule(state):
-                problems.append("a Volcanic check opened without Volcanic Access")
-            eq = next(l for l in real_locations(t) if " with " in l.name and "Volcanic" in l.name)
+            state.collect(w.create_item("Ice Access"))
+            if not t.multiworld.get_location("Complete Ice Island 2 (Loop 2)", 1).access_rule(state):
+                problems.append("Ice Access did not open an Ice Loop 2 check")
+            if t.multiworld.get_location("Complete Volcano Island 2", 1).access_rule(state):
+                problems.append("a Volcano check opened without Volcano Access")
+            eq = next(l for l in real_locations(t) if " with " in l.name and "Volcano" in l.name)
             st = CollectionState(t.multiworld)
-            st.collect(w.create_item("Volcanic Access"))
+            st.collect(w.create_item("Volcano Access"))
             if eq.access_rule(st):
                 problems.append(f"{eq.name} opened without its equipment")
 

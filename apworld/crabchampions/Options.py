@@ -1,6 +1,6 @@
 import typing
 from dataclasses import dataclass
-from Options import Toggle, DefaultOnToggle, Range, Choice, ItemDict, DeathLink, PerGameCommonOptions
+from Options import Toggle, DefaultOnToggle, Range, Choice, ItemDict, OptionCounter, DeathLink, PerGameCommonOptions, OptionGroup
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -8,22 +8,17 @@ from Options import Toggle, DefaultOnToggle, Range, Choice, ItemDict, DeathLink,
 # ──────────────────────────────────────────────────────────────────────────
 
 class RequiredRank(Choice):
-    """The minimum rank you must complete to win.  A run is "completed at
-    Rank X" when you finish the final island while accumulating at least
-    Rank X's worth of difficulty modifier points.
+    """The rank you must reach to win.  A run counts when you finish the
+    final island at this rank or higher, so a Gold run also counts for Silver.
 
-    Difficulty thresholds:
+    Rank comes from the difficulty modifier points you have active:
       Bronze (0), Silver (1), Gold (2-3), Sapphire (4-5), Emerald (6-7),
       Ruby (8-9), Diamond (10-15), Prismatic (16+)
 
-    Higher ranks demand stacking more modifier cards before each island, so
-    higher requirements mean tougher runs.  Run-completion locations are
-    generated for this rank by default; see Extra Rank Checks to also
-    generate locations for higher ranks.
-
-    Bronze has no checks of its own, since every clear is at least Bronze:
-    the plain "Complete Island X" and "Complete Island X with Weapon"
-    checks are the Bronze checks.  A Bronze goal uses those."""
+    Bronze means any clear: it has no checks of its own, the plain
+    "Complete Island X" and "Complete Island X with Weapon" checks stand in
+    for it.  Higher ranks need more modifier cards, so they are harder.
+    See Extra Rank Checks to also get checks for the other ranks."""
     display_name = "Required Rank"
     option_bronze = 0
     option_silver = 1
@@ -42,8 +37,9 @@ class RunLength(Choice):
       short (28): one full biome cycle
       full  (56): two full biome cycles
 
-    All island/equipment/rank locations scale with this value - a Full run
-    has roughly twice the location count of a Short run."""
+    Island and equipment checks scale with this value: a Full run has about
+    twice as many of them as a Short run.  Pickup checks and the per-rank
+    Complete Run checks do not change."""
     display_name = "Run Length"
     option_short = 28
     option_full = 56
@@ -53,10 +49,10 @@ class RunLength(Choice):
 class CheckLayout(Choice):
     """How island checks are named and counted.
       island_number: one check per island number, "Complete Island 15".
-      biome: one check per biome and island slot, "Complete Arctic Island 1",
+      biome: one check per biome and island slot, "Complete Ice Island 1",
         "Reach Desert Shop".  The same biome and slot only counts once, so
         repeating a biome in a run sends nothing new.  A full-length run also
-        gets a second set of checks for its second pass, "Complete Arctic
+        gets a second set of checks for its second pass, "Complete Ice
         Island 1 (Loop 2)".
 
     The number of checks is the same in both layouts.  With Biome Lock on,
@@ -119,17 +115,17 @@ class AbilityForCompletion(Range):
 class WeaponsInPool(Range):
     """How many weapons are randomly selected from the 21 available to be
     AP items.  Pool weapons must be received via Archipelago before you can
-    use them.  Non-pool weapons are always available from the start.
+    use them.  Weapons not in the pool are always available from the start.
 
-    Each pool weapon also generates its own per-island run-completion
-    location, so a larger pool means more checks.
+    Each pool weapon also gets its own per-island run checks, so a larger
+    pool means more checks.
 
     Example: pool=5, for_completion=3 means 5 weapons are AP items, all 5
     have location checks, but only 3 distinct ones must be used to win.
 
-    Must be >= Weapons for Completion (auto-clamped).  Set to 21 to put
-    every weapon in the pool - Starting Weapons is then forced to at least
-    1 so you always begin with something usable."""
+    Raised to Weapons for Completion when lower.  Set to 21 to put every
+    weapon in the pool; Starting Weapons is then at least 1 so you always
+    begin with something usable."""
     display_name = "Weapons in Pool"
     range_start = 1
     range_end = 21
@@ -140,47 +136,62 @@ class MeleeInPool(Range):
     """How many melee weapons (out of 6) are randomly selected to be AP
     items.  See Weapons in Pool for the full mechanic.
 
-    Must be >= Melee for Completion (auto-clamped).  Forced to 0 when
-    Melee for Completion is 0.  Set to 6 to put every melee weapon in the
-    pool - one random pool melee is then added to your starting inventory
-    so you always begin with something usable."""
+    Raised to Melee for Completion when lower, and forced to 0 when Melee
+    for Completion is 0.  Set to 6 to put every melee weapon in the pool;
+    Starting Melee is then at least 1 so you always begin with something
+    usable."""
     display_name = "Melee in Pool"
     range_start = 0
     range_end = 6
-    default = 0
+    default = 3
 
 
 class AbilitiesInPool(Range):
     """How many abilities (out of 9) are randomly selected to be AP items.
     See Weapons in Pool for the full mechanic.
 
-    Must be >= Abilities for Completion (auto-clamped).  Forced to 0 when
+    Raised to Abilities for Completion when lower, and forced to 0 when
     Abilities for Completion is 0.  Set to 9 to put every ability in the
-    pool - one random pool ability is then added to your starting
-    inventory so you always begin with something usable."""
+    pool; Starting Abilities is then at least 1 so you always begin with
+    something usable."""
     display_name = "Abilities in Pool"
     range_start = 0
     range_end = 9
-    default = 0
+    default = 3
 
 
 class StartingWeapons(Range):
     """How many of your pool weapons you begin the game already holding.
-    These are randomly selected from Weapons in Pool and pre-collected, so
-    you can start working on equipment-run checks immediately without
-    waiting to receive a weapon from another player.
+    They are picked at random from Weapons in Pool, so you can start on
+    equipment checks without waiting for a weapon from another player.  A
+    pool weapon you start with already counts toward Weapons for Completion.
 
-    A weapon you start with is removed from the item pool rather than
-    duplicated, so its slot goes to filler instead of a second copy of
-    something you already hold.
-
-    Must be < Weapons in Pool (at least one weapon must still be findable
-    via AP).  Set to 0 to start with no pool weapons unlocked - except
-    when Weapons in Pool is 21, where this is forced to at least 1 because
-    no weapon would otherwise be available at the start."""
+    A weapon you start with is removed from the item pool, so its slot goes
+    to filler.  Must be less than Weapons in Pool (reduced if not), except
+    that a full pool of 21 forces at least 1."""
     display_name = "Starting Weapons"
     range_start = 0
     range_end = 20
+    default = 0
+
+
+class StartingMelee(Range):
+    """How many of your pool melee weapons you begin the game already
+    holding.  Works like Starting Weapons.  Must be less than Melee in Pool
+    (reduced if not), except that a full pool of 6 forces at least 1."""
+    display_name = "Starting Melee"
+    range_start = 0
+    range_end = 5
+    default = 0
+
+
+class StartingAbilities(Range):
+    """How many of your pool abilities you begin the game already holding.
+    Works like Starting Weapons.  Must be less than Abilities in Pool
+    (reduced if not), except that a full pool of 9 forces at least 1."""
+    display_name = "Starting Abilities"
+    range_start = 0
+    range_end = 8
     default = 0
 
 
@@ -217,13 +228,12 @@ class EquipmentCheckMode(Choice):
 # ──────────────────────────────────────────────────────────────────────────
 
 class MaxRank(Choice):
-    """The highest rank for which any location checks are generated.  Must
-    be >= Required Rank (auto-clamped).  Bronze here means only the plain
-    (unranked) checks.
+    """The highest rank that gets its own checks.  Raised to Required Rank
+    when lower.  A run above Max Rank still counts for every rank up to Max
+    Rank.  Bronze here means only the plain checks.
 
-    Has no effect unless Extra Rank Checks is set to something other than
-    "none" - without extra rank checks, only Required Rank generates
-    locations and Max Rank is ignored."""
+    Only used when Extra Rank Checks is not "none"; otherwise just Required
+    Rank has ranked checks."""
     display_name = "Max Rank"
     option_bronze = 0
     option_silver = 1
@@ -237,25 +247,23 @@ class MaxRank(Choice):
 
 
 class ExtraRankChecks(Choice):
-    """Controls whether ranks ABOVE Required Rank generate additional
-    location checks.  Replaces the legacy Extra Ranked Island Checks +
-    Non-Progression Above Required pair with one option that captures
-    the meaningful combinations.
+    """Whether ranks besides Required Rank get their own checks.  A higher
+    rank counts for all lower ranks, so one Gold clear also covers the Silver
+    and plain checks.
 
     none:
-        Only Required Rank produces ranked checks.  Higher ranks are
-        ignored and produce no additional locations.  Smallest pool.
+        Only Required Rank has ranked checks (plus the plain checks, which
+        any clear sends).  Smallest pool.
     progression:
-        Ranks above Required (up to Max Rank) add new ranked checks AND
-        those locations can hold progression items.  Greatly increases
-        location count and turns higher difficulty into real progression.
+        Every rank from Silver up to Max Rank gets ranked checks, and they
+        can hold progression items.  Many more checks, and higher difficulty
+        becomes real progression.
     filler_only:
-        Ranks above Required add new ranked checks but those locations
-        are marked excluded - they only hold filler.  Use this to add
-        more checks for variety/filler without forcing yourself to grind
-        higher ranks for critical items.
+        The same checks as progression, but those above Required Rank only
+        hold filler.  Extra checks for variety without having to grind high
+        ranks for important items.
 
-    Has no effect when Required Rank == Max Rank (no extra ranks exist)."""
+    Does nothing when Required Rank and Max Rank are both Bronze."""
     display_name = "Extra Rank Checks"
     option_none = 0
     option_progression = 1
@@ -263,37 +271,18 @@ class ExtraRankChecks(Choice):
     default = 0
 
 
-class CascadeRankedChecks(Toggle):
-    """When enabled, completing an in-game check at a higher rank also
-    triggers the equivalent check at every lower rank.  E.g. completing
-    "Island 5 with Auto Rifle on Gold" also sends checks for "Island 5
-    with Auto Rifle on Silver" and the plain "Island 5 with Auto Rifle".
-
-    Convenient when playing at high ranks - you don't have to redo runs
-    at lower ranks for the easier checks.  Has no effect on generation
-    or fill, only on what the in-game client sends as you play."""
-    display_name = "Cascade Ranked Checks"
-
-
 class MinimizeRunChecks(Toggle):
-    """When enabled, drops generalized run-completion checks that are made
-    redundant by the most-specific equipment-and-rank check.  Pool weapons
-    always have these locations, so the redundant ones are always covered:
+    """Leaves out checks that a more specific check already covers, for a
+    smaller world:
 
-      - "Complete Island X on Rank" checks are removed
-      - "Complete Island X with Weapon" checks are removed
+      - "Complete Island X on Rank" (the per-rank island checks) are removed;
+        the plain "Complete Island X" stays.
+      - "Complete Island X with Weapon" (plain equipment checks) are removed
+        when the goal is above Bronze, since "with Weapon on Rank" covers
+        them.  With a Bronze goal or Extra Rank Checks on they stay, as they
+        are the Bronze checks.
 
-    The most specific "Complete Island X with Weapon on Rank" check is
-    always kept, since completing it implies completing all the dropped
-    variants.  Plain "Complete Island X" (unranked) is also kept.
-
-    The plain "Complete Island X with Weapon" checks are the Bronze checks,
-    so they are kept when Bronze is part of the goal (Required Rank Bronze)
-    or when Extra Rank Checks is on.
-
-    Has no effect only in the unusual case where there are no equipment
-    runs at all (which currently can't happen since Weapons in Pool is
-    forced to >= 1)."""
+    "Complete Island X with Weapon on Rank" is always kept."""
     display_name = "Minimize Run Checks"
 
 
@@ -302,46 +291,39 @@ class MinimizeRunChecks(Toggle):
 # ──────────────────────────────────────────────────────────────────────────
 
 class PickupChecks(DefaultOnToggle):
-    """When enabled, picking up perks, relics, weapon mods, melee mods,
-    or ability mods for the FIRST TIME (per item, per multiworld) sends
-    a location check, e.g. "Perk: Driller" or "Relic: Time Ring".
+    """Picking up a perk, relic, weapon mod, melee mod or ability mod for
+    the first time sends a check, e.g. "Perk: Driller" or "Relic: Time Ring".
 
-    Adds up to 339 location checks.  When disabled, these pickup
-    locations don't exist and the item pool focuses on island/equipment/
-    rank-run checks only.
+    Up to 341 checks (318 with Greed Item Mode on skip).  When off, these
+    checks do not exist and the world is only island, equipment and rank
+    checks.  Perks, mods and relics are still received as items, but a small
+    world only holds a random part of them.
 
-    See also Limit Pickup Pool / Limit Pickup Locations to scale this
-    down to per-run inventory caps."""
+    See Limit Pickups to scale this down."""
     display_name = "Pickup Checks"
 
 
-class LimitPickupPool(Toggle):
-    """When enabled, the AP item pool is limited to a randomly-selected
-    subset of pickups matching your per-run inventory caps:
-      24 perks, 24 weapon mods, 12 ability mods, 12 melee mods, 10 relics
+class LimitPickups(Choice):
+    """Limit pickups to a random set matching your per-run inventory caps
+    (24 perks, 24 weapon mods, 12 ability mods, 12 melee mods, 10 relics).
 
-    Items NOT in the chosen subset stay in-game and can be picked up
-    normally during runs, but are never sent or received via AP.
+    off: every pickup can be an item and has a check.
+    pool_and_checks: only the chosen set is sent as items and has checks.
+    pool_only: only the chosen set is sent as items; every pickup keeps its
+        check, so the rest are filled with other things.
+    checks_only: every pickup can be an item, but only the chosen set has
+        checks.
 
-    Tag-group coverage is enforced - at least one provider per pickup-tag
-    group is guaranteed in the subset, so tag-gated locations (like
-    "Relic: Time Ring") remain reachable.
-
-    Pairs naturally with Limit Pickup Locations.  Either option can be
-    enabled independently; both share the same chosen subset."""
-    display_name = "Limit Pickup Pool"
-
-
-class LimitPickupLocations(Toggle):
-    """When enabled, pickup location checks are only generated for items
-    in the randomly-selected subset (see Limit Pickup Pool for the
-    subset sizes).  Items not in the subset still appear in-game but
-    produce no location check when picked up.
-
-    Pairs naturally with Limit Pickup Pool.  Either option can be
-    enabled independently; both share the same chosen subset when both
-    are on."""
-    display_name = "Limit Pickup Locations"
+    Pickups outside the set can still be found in a run; they just are not
+    sent or received, and where checks are limited they send no check.  The
+    set always has a provider for each pickup that needs another one, so no
+    check becomes unreachable.  Checks need Pickup Checks."""
+    display_name = "Limit Pickups"
+    option_off = 0
+    option_pool_and_checks = 1
+    option_pool_only = 2
+    option_checks_only = 3
+    default = 0
 
 
 class GrantedItemChecks(DefaultOnToggle):
@@ -458,18 +440,16 @@ class BiomeItemPercentage(Range):
 # ──────────────────────────────────────────────────────────────────────────
 
 class CrystalCachePercentage(Range):
-    """Percentage of "extra" item pool slots filled with Crystal Cache
-    (in-game currency rewards) instead of duplicate perk/mod stacks.
+    """Share of the spare item slots that become crystals rather than extra
+    copies of perks and mods.  Spare slots are what is left after equipment,
+    one of each pickup, Biome Access, slot items, traps and Perk Boosts.
 
-    The pool is built by first adding required items (pool equipment,
-    one of each pickup, etc.).  Whatever slots remain are split between
-    crystal filler and extra stackable copies based on this percentage:
-      0%   = all extras are duplicate perks/mods (more variety in
-             received items)
-      75%  = default; balanced mix
-      100% = all extras are Crystal Cache (less spam of duplicates)
+      0%   = all spare slots are extra perks/mods
+      75%  = default mix
+      100% = all spare slots are crystals
 
-    Crystal Cache items grant in-game currency for shops/upgrades."""
+    Crystals come in three sizes: Cache (50 crystals, 60% of them), Hoard
+    (100, 35%) and Jackpot (500, 5%)."""
     display_name = "Crystal Cache Percentage"
     range_start = 0
     range_end = 100
@@ -498,17 +478,10 @@ class GreedItemMode(Choice):
 
 
 class GuaranteedItemsOption(ItemDict):
-    """Forces specific items into the item pool regardless of other
-    settings.  Format is a YAML mapping of item names to copy counts:
-
+    """Extra copies of perks and mods, by exact item name. Example:
       guaranteed_items:
-        Auto Rifle: 1
         Time Bolt: 2
-
-    Useful for ensuring favorite items end up randomized.  Item names
-    must match exactly (case-sensitive).  Only stackable items (perks and
-    mods) take extra copies; relics and equipment are unique, so they get
-    one copy whatever the count."""
+        Driller: 3"""
     display_name = "Guaranteed Items"
 
 
@@ -517,88 +490,41 @@ class GuaranteedItemsOption(ItemDict):
 # ──────────────────────────────────────────────────────────────────────────
 
 class TrapPercentage(Range):
-    """Percentage of the filler slots that become traps.  Traps are
-    received items that make a run harder for a short time; none of them
-    is permanent, removes your equipment, or can kill you outright.
+    """Share of the spare item slots that become traps.  Traps make a run
+    harder for a short time; none of them is permanent, removes your
+    equipment, or can kill you outright.
 
-    0 = no traps (default).  Filler slots are the slots left over after
-    equipment, one of each pickup and any Perk Boosts are placed."""
+    0 = no traps (default).  Spare slots are what is left after equipment,
+    one of each pickup, Biome Access and slot items.  Traps are placed
+    before Perk Boosts, so 100 leaves no room for them."""
     display_name = "Trap Percentage"
     range_start = 0
     range_end = 100
     default = 0
 
 
-class TrapWeightCrystalTax(Range):
-    """Relative chance that a trap is Crystal Tax (you lose a share of your
-    crystals).  0 removes this trap from the pool."""
-    display_name = "Trap Weight: Crystal Tax"
-    range_start = 0
-    range_end = 100
-    default = 20
-
-
-class TrapWeightSlowdown(Range):
-    """Relative chance that a trap is a Slowdown Trap (you move slower until
-    the next island is cleared).  0 removes this trap from the pool."""
-    display_name = "Trap Weight: Slowdown"
-    range_start = 0
-    range_end = 100
-    default = 20
-
-
-class TrapWeightWeakShots(Range):
-    """Relative chance that a trap is a Weak Shots Trap (your outgoing damage
-    is cut for the trap duration).  0 removes this trap from the pool."""
-    display_name = "Trap Weight: Weak Shots"
-    range_start = 0
-    range_end = 100
-    default = 20
-
-
-class TrapWeightBruise(Range):
-    """Relative chance that a trap is a Bruise Trap (you lose a share of your
-    current health, never the last point).  0 removes this trap."""
-    display_name = "Trap Weight: Bruise"
-    range_start = 0
-    range_end = 100
-    default = 20
-
-
-class TrapWeightGrow(Range):
-    """Relative chance that a trap is a Grow Trap (a bigger crab for the trap
-    duration).  0 removes this trap from the pool."""
-    display_name = "Trap Weight: Grow"
-    range_start = 0
-    range_end = 100
-    default = 10
-
-
-class TrapWeightShrink(Range):
-    """Relative chance that a trap is a Shrink Trap (a smaller crab for the
-    trap duration).  0 removes this trap from the pool."""
-    display_name = "Trap Weight: Shrink"
-    range_start = 0
-    range_end = 100
-    default = 10
-
-
-class TrapWeightHeavyGravity(Range):
-    """Relative chance that a trap is a Heavy Gravity Trap (stronger gravity
-    for the trap duration).  0 removes this trap from the pool."""
-    display_name = "Trap Weight: Heavy Gravity"
-    range_start = 0
-    range_end = 100
-    default = 10
-
-
-class TrapWeightFloatyGravity(Range):
-    """Relative chance that a trap is a Floaty Gravity Trap (weaker gravity
-    for the trap duration).  0 removes this trap from the pool."""
-    display_name = "Trap Weight: Floaty Gravity"
-    range_start = 0
-    range_end = 100
-    default = 10
+class TrapWeights(OptionCounter):
+    """Relative chance of each trap kind (0 to 100). Traps left out never appear. Example:
+      trap_weights:
+        Crystal Tax: 30
+        Bruise Trap: 10"""
+    display_name = "Trap Weights"
+    min = 0
+    max = 100
+    valid_keys = frozenset({
+        "Crystal Tax", "Slowdown Trap", "Weak Shots Trap", "Bruise Trap",
+        "Grow Trap", "Shrink Trap", "Heavy Gravity Trap", "Floaty Gravity Trap",
+    })
+    default = {
+        "Crystal Tax": 20,
+        "Slowdown Trap": 20,
+        "Weak Shots Trap": 20,
+        "Bruise Trap": 20,
+        "Grow Trap": 10,
+        "Shrink Trap": 10,
+        "Heavy Gravity Trap": 10,
+        "Floaty Gravity Trap": 10,
+    }
 
 
 class TrapDuration(Range):
@@ -660,39 +586,27 @@ class BruisePercent(Range):
 # ──────────────────────────────────────────────────────────────────────────
 
 class PerkBoostCount(Range):
-    """How many Perk Boost items are added to the pool (taking filler
-    slots).  A Perk Boost adds one level to a random perk you are holding
-    in the current run.  It is strong, so it is limited three ways: this
-    count per seed, Perk Boost Max Per Run, and Perk Boost Level Cap.
-
-    0 = none (default)."""
+    """How many Perk Boost items are in the pool. When you receive one during a run, a random
+    perk you are holding goes up by Perk Boost Levels levels, like picking up that perk again
+    several times. Boosts take spare filler slots after traps. 0 = none."""
     display_name = "Perk Boost Count"
     range_start = 0
     range_end = 50
     default = 0
 
 
-class PerkBoostMaxPerRun(Range):
-    """The most Perk Boosts that can take effect in one run.  Boosts over the
-    limit wait for the next run."""
-    display_name = "Perk Boost Max Per Run"
+class PerkBoostLevels(Range):
+    """How many levels one Perk Boost adds to the perk it picks. Greed perks are never picked;
+    if you hold no other perk, the boost waits until you do."""
+    display_name = "Perk Boost Levels"
     range_start = 1
-    range_end = 20
+    range_end = 10
     default = 3
 
 
-class PerkBoostLevelCap(Range):
-    """A Perk Boost never raises a perk above this level.  Perks already at
-    the cap are skipped; if every perk you hold is capped, the boost waits."""
-    display_name = "Perk Boost Level Cap"
-    range_start = 2
-    range_end = 10
-    default = 5
-
-
 class BiomeLock(DefaultOnToggle):
-    """Runs can only enter biomes you own the Access item for (Tropical, Arctic,
-    Desert and Volcanic Access).  You start with the Access item of your
+    """Runs can only enter biomes you own the Access item for (Tropical, Ice,
+    Desert and Volcano Access).  You start with the Access item of your
     starting biome.  When the next biome of a run is one you do not own, the
     run goes to a biome you do own instead, and repeats the same biome if it
     is the only one.
@@ -711,67 +625,61 @@ class StartingBiome(Choice):
     display_name = "Starting Biome"
     # Numbered like the game's own biomes.
     option_tropical = 1
-    option_arctic = 2
+    option_ice = 2
+    alias_arctic = 2
     option_desert = 3
-    option_volcanic = 4
+    option_volcano = 4
+    alias_volcanic = 4
     default = "random"
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Dataclass - option order controls display order in the WebUI
+# Dataclass - option order controls order in the YAML template and WebUI
 # ──────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class CrabChampsOption(PerGameCommonOptions):
-    # Victory conditions
+    # Goal
     required_rank: RequiredRank
     run_length: RunLength
-    check_layout: CheckLayout
     weapons_for_completion: WeaponsForCompletion
     melee_for_completion: MeleeForCompletion
     ability_for_completion: AbilityForCompletion
-    # Item pool / equipment
+    # Equipment
     weapons_in_pool: WeaponsInPool
     melee_in_pool: MeleeInPool
     abilities_in_pool: AbilitiesInPool
     starting_weapons: StartingWeapons
+    starting_melee: StartingMelee
+    starting_abilities: StartingAbilities
     equipment_check_mode: EquipmentCheckMode
-    # Rank modifiers
-    max_rank: MaxRank
+    # Run checks
+    check_layout: CheckLayout
     extra_rank_checks: ExtraRankChecks
-    cascade_ranked_checks: CascadeRankedChecks
+    max_rank: MaxRank
     minimize_run_checks: MinimizeRunChecks
     # Biomes
     biome_lock: BiomeLock
     starting_biome: StartingBiome
-    # Pickup checks
+    # Pickups
     pickup_checks: PickupChecks
-    limit_pickup_pool: LimitPickupPool
-    limit_pickup_locations: LimitPickupLocations
     granted_item_checks: GrantedItemChecks
-    # Progressive inventory slots
+    limit_pickups: LimitPickups
+    greed_item_mode: GreedItemMode
+    # Inventory slots
     progressive_slots: ProgressiveSlots
     starting_perk_slots: StartingPerkSlots
     starting_weapon_mod_slots: StartingWeaponModSlots
     starting_ability_mod_slots: StartingAbilityModSlots
     starting_melee_mod_slots: StartingMeleeModSlots
-    # Received items per run
+    # Received items
     starting_item_percentage: StartingItemPercentage
     biome_item_percentage: BiomeItemPercentage
-    # Filler / misc
     crystal_cache_percentage: CrystalCachePercentage
-    greed_item_mode: GreedItemMode
     guaranteed_items: GuaranteedItemsOption
     # Traps
     trap_percentage: TrapPercentage
-    trap_weight_crystal_tax: TrapWeightCrystalTax
-    trap_weight_slowdown: TrapWeightSlowdown
-    trap_weight_weak_shots: TrapWeightWeakShots
-    trap_weight_bruise: TrapWeightBruise
-    trap_weight_grow: TrapWeightGrow
-    trap_weight_shrink: TrapWeightShrink
-    trap_weight_heavy_gravity: TrapWeightHeavyGravity
-    trap_weight_floaty_gravity: TrapWeightFloatyGravity
+    trap_weights: TrapWeights
     trap_duration: TrapDuration
     trap_grace_seconds: TrapGraceSeconds
     crystal_tax_percent: CrystalTaxPercent
@@ -780,6 +688,77 @@ class CrabChampsOption(PerGameCommonOptions):
     bruise_percent: BruisePercent
     # Perk Boost
     perk_boost_count: PerkBoostCount
-    perk_boost_max_per_run: PerkBoostMaxPerRun
-    perk_boost_level_cap: PerkBoostLevelCap
+    perk_boost_levels: PerkBoostLevels
     death_link: DeathLink
+
+
+# Groups for the WebUI and the YAML template.  Every option must be in one.
+crab_option_groups = [
+    OptionGroup("Goal", [
+        RequiredRank, RunLength, WeaponsForCompletion, MeleeForCompletion, AbilityForCompletion,
+    ]),
+    OptionGroup("Equipment", [
+        WeaponsInPool, MeleeInPool, AbilitiesInPool,
+        StartingWeapons, StartingMelee, StartingAbilities, EquipmentCheckMode,
+    ]),
+    OptionGroup("Run Checks", [
+        CheckLayout, ExtraRankChecks, MaxRank, MinimizeRunChecks,
+    ]),
+    OptionGroup("Biomes", [
+        BiomeLock, StartingBiome,
+    ]),
+    OptionGroup("Pickup Checks", [
+        PickupChecks, GrantedItemChecks, LimitPickups, GreedItemMode,
+    ]),
+    OptionGroup("Inventory Slots", [
+        ProgressiveSlots, StartingPerkSlots, StartingWeaponModSlots,
+        StartingAbilityModSlots, StartingMeleeModSlots,
+    ]),
+    OptionGroup("Received Items", [
+        StartingItemPercentage, BiomeItemPercentage, CrystalCachePercentage, GuaranteedItemsOption,
+    ]),
+    OptionGroup("Traps", [
+        TrapPercentage,
+        TrapWeights,
+        TrapDuration, TrapGraceSeconds,
+        CrystalTaxPercent, SlowdownPercent, WeakShotsPercent, BruisePercent,
+    ]),
+    OptionGroup("Perk Boost", [
+        PerkBoostCount, PerkBoostLevels,
+    ]),
+    OptionGroup("Multiplayer", [
+        DeathLink,
+    ]),
+]
+
+
+# Ready-made settings for the WebUI.  Anything not listed keeps its default.
+crab_option_presets = {
+    "Short and easy": {
+        "required_rank": "bronze",
+        "run_length": "short",
+        "weapons_for_completion": 2,
+        "melee_for_completion": 1,
+        "ability_for_completion": 1,
+        "weapons_in_pool": 3,
+        "melee_in_pool": 1,
+        "abilities_in_pool": 1,
+        "pickup_checks": False,
+        "extra_rank_checks": "none",
+    },
+    "Standard": {},
+    "Long grind": {
+        "required_rank": "gold",
+        "run_length": "full",
+        "weapons_for_completion": 8,
+        "melee_for_completion": 4,
+        "ability_for_completion": 5,
+        "weapons_in_pool": 12,
+        "melee_in_pool": 5,
+        "abilities_in_pool": 7,
+        "extra_rank_checks": "filler_only",
+        "max_rank": "ruby",
+        "equipment_check_mode": "filler_only",
+        "limit_pickups": "pool_and_checks",
+    },
+}

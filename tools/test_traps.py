@@ -25,7 +25,7 @@ LoopAsync = function() end
 local real_require = require
 package.loaded["AP/LocationData"] = {
     trap_duration = 30, trap_grace_seconds = 10, crystal_tax_percent = 25, slowdown_percent = 40,
-    weak_shots_percent = 50, bruise_percent = 30, perk_boost_max_per_run = 2, perk_boost_level_cap = 3,
+    weak_shots_percent = 50, bruise_percent = 30, perk_boost_levels = 3,
 }
 -- fake world
 clock = 1792265000   -- a real-sized epoch value, so island-long effects are tested with the clocks the game uses
@@ -64,11 +64,12 @@ return function(Traps, state_path)
     g.health = function() return world.health, 100 end
     g.set_health = function(v) world.health = v; return true end
     Traps.item_apply = function()
-        return { boost_random_perk = function(cap)
+        return { boost_random_perk = function(levels)
             if world.boost_pool <= 0 then return nil end
             world.boost_pool = world.boost_pool - 1
             world.boost_calls = world.boost_calls + 1
-            return "Perk", cap
+            world.boost_levels = levels
+            return "Perk", levels
         end }
     end
 end
@@ -291,7 +292,7 @@ g.clock += 11
 Traps.tick()
 expect("fires again after reset", world.crystals, 150)
 
-# --- Perk Boost limits: max per run, boosts wait for the next run
+# --- Perk Boost: every boost adds the configured levels, with no per-run limit
 fresh()
 for i in range(4):
     Traps.on_item(info("Perk Boost"), i, ID)
@@ -299,15 +300,10 @@ Traps.tick()
 g.clock += 1
 Traps.tick()
 Traps.tick()
-expect("boosts capped per run", world.boost_calls, 2)
-expect("boosts waiting", Traps.pending_boosts(), 2)
-world.lobby = True
-Traps.tick()                         # new run resets the per-run count
-world.lobby = False
 Traps.tick()
-Traps.tick()
-expect("boosts resume next run", world.boost_calls, 4)
+expect("every boost lands", world.boost_calls, 4)
 expect("boosts used up", Traps.pending_boosts(), 0)
+expect("a boost adds the configured levels", world.boost_levels, 3)
 
 # --- a boost with nothing to raise waits instead of being lost
 fresh()

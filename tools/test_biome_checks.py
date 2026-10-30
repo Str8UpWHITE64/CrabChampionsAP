@@ -93,7 +93,7 @@ check(max(added.values()) < B + T * 17, "biome IDs overflow their regions")
 # --------------------------------------------------------------------------
 # Names
 # --------------------------------------------------------------------------
-BIOMES = ["Tropical", "Arctic", "Desert", "Volcanic"]
+BIOMES = ["Tropical", "Ice", "Desert", "Volcano"]
 
 
 def expected_name(biome, slot, loop):
@@ -112,7 +112,7 @@ for loop, biome, slot in itertools.product((0, 1), range(1, 5), range(1, 8)):
     check(locs.biome_index_to_biome(k) == biome, f"biome of index {k}")
 check(locs.biome_index_from_name("Complete Island 3") == -1, "island name parsed as a biome name")
 check(locs.biome_index_from_name("Reach Shop on Island 6 on Gold") == -1, "island shop parsed as a biome name")
-check("Complete Tropical Island 3" in new_ids and "Reach Arctic Shop" in new_ids, "documented names missing")
+check("Complete Tropical Island 3" in new_ids and "Reach Ice Shop" in new_ids, "documented names missing")
 check("Complete Tropical Island 3 (Loop 2)" in new_ids, "loop 2 name missing")
 check("Complete Desert Island 4 with Auto Rifle on Gold" in new_ids, "equipment name missing")
 
@@ -264,7 +264,7 @@ got = play("{ run_length = 28, check_layout = 1 }", [(5, 1, "clear"), (7, 2, "cl
 check(B + 7 in got and B + 14 not in got, f"slot 7 without the shop sent {got}")
 got = play("{ run_length = 28, check_layout = 1 }", [(7, 2, "clear")])
 check(B + 14 in got, f"slot 7 with no record should use the current biome {got}")
-# A repeat of Arctic slot 1 on island 8 sends nothing new.
+# A repeat of Ice slot 1 on island 8 sends nothing new.
 got = play("{ run_length = 28, check_layout = 1 }", [(1, 2, "clear"), (8, 2, "clear")])
 check(got.count(B + 8) == 1 and len(got) == len(set(got)), f"biome repeat sent {got}")
 # A full run's second pass.

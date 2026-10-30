@@ -268,26 +268,17 @@ _trap_items = [
 
 # ──────────────────────────────────────────────
 # Biome access  (cc_code 980–983), one per biome in the game's own order
-# (Tropical 1, Arctic 2, Desert 3, Volcanic 4).  Only used with biome_lock.
+# (Tropical 1, Ice 2, Desert 3, Volcano 4).  Only used with biome_lock.
 # ──────────────────────────────────────────────
 _biome_items = [
     CrabChampsItemData("Tropical Access", 980, CrabChampsItemCategory.BIOME),
-    CrabChampsItemData("Arctic Access", 981, CrabChampsItemCategory.BIOME),
+    CrabChampsItemData("Ice Access", 981, CrabChampsItemCategory.BIOME),
     CrabChampsItemData("Desert Access", 982, CrabChampsItemCategory.BIOME),
-    CrabChampsItemData("Volcanic Access", 983, CrabChampsItemCategory.BIOME),
+    CrabChampsItemData("Volcano Access", 983, CrabChampsItemCategory.BIOME),
 ]
 
-# Option name (Options.py) -> trap item name, in a fixed order
-TRAP_WEIGHT_OPTIONS = {
-    "trap_weight_crystal_tax": "Crystal Tax",
-    "trap_weight_slowdown": "Slowdown Trap",
-    "trap_weight_weak_shots": "Weak Shots Trap",
-    "trap_weight_bruise": "Bruise Trap",
-    "trap_weight_grow": "Grow Trap",
-    "trap_weight_shrink": "Shrink Trap",
-    "trap_weight_heavy_gravity": "Heavy Gravity Trap",
-    "trap_weight_floaty_gravity": "Floaty Gravity Trap",
-}
+# Trap item names in a fixed order (the keys of the Trap Weights option)
+TRAP_NAMES = [item.name for item in _trap_items]
 
 # Crystal filler distribution weights (must sum to 100)
 CRYSTAL_FILLER_WEIGHTS = [
@@ -334,7 +325,7 @@ melee_mod_item_names = [item.name for item in _melee_mod_items]
 ability_mod_item_names = [item.name for item in _ability_mod_items]
 
 # Biome names and access items, indexed by the game's biome number minus one.
-BIOME_NAMES = ["Tropical", "Arctic", "Desert", "Volcanic"]
+BIOME_NAMES = ["Tropical", "Ice", "Desert", "Volcano"]
 biome_access_item_names = [item.name for item in _biome_items]
 
 # Greed items: cannot be dropped once picked up.
@@ -613,8 +604,15 @@ def BuildItemPool(multiworld, count, options,
             if item_name not in pool_names:
                 _add(item)
             continue
-        for _ in range(max(0, int(copies))):
+        for _ in range(min(max(0, int(copies)), count + 1)):
             _add(item)
+
+    n_fixed = len(item_pool)  # equipment and guaranteed items: never dropped
+    if n_fixed > count:
+        from Options import OptionError
+        raise OptionError(
+            "Crab Champions: the equipment and Guaranteed Items alone need %d item slots but there are only "
+            "%d checks. Lower the Guaranteed Items copies or turn on more checks." % (n_fixed, count))
 
     # 3. Relics — one copy each (they don't stack).
     #    Skip relics not in the chosen subset when limited.
@@ -634,6 +632,13 @@ def BuildItemPool(multiworld, count, options,
             continue
         _add(item)
 
+    if len(item_pool) > count:
+        # A small world (few checks) cannot hold one of every pickup: keep a
+        # random part of them rather than the first ones in the lists.
+        fixed, pickups = item_pool[:n_fixed], item_pool[n_fixed:]
+        item_pool = fixed + multiworld.random.sample(pickups, count - n_fixed)
+        pool_names = [i.name for i in item_pool]
+
     remaining = count - len(item_pool)
 
     # 5a. Traps and Perk Boosts take their share of the remaining slots first.
@@ -641,13 +646,10 @@ def BuildItemPool(multiworld, count, options,
     #     Perk Boosts: perk_boost_count, never more than the slots left.
     trap_pct = getattr(options, "trap_percentage", None)
     trap_pct = trap_pct.value if trap_pct is not None else 0
-    trap_names, trap_weights = [], []
-    for opt_name, item_name in TRAP_WEIGHT_OPTIONS.items():
-        opt = getattr(options, opt_name, None)
-        weight = opt.value if opt is not None else 0
-        if weight > 0:
-            trap_names.append(item_name)
-            trap_weights.append(weight)
+    weight_opt = getattr(options, "trap_weights", None)
+    given = weight_opt.value if weight_opt is not None else {}
+    trap_names = [n for n in TRAP_NAMES if given.get(n, 0) > 0]
+    trap_weights = [given[n] for n in trap_names]
     if remaining > 0 and trap_pct > 0 and trap_names:
         trap_slots = min(remaining, round(remaining * trap_pct / 100))
         for name in multiworld.random.choices(trap_names, weights=trap_weights, k=trap_slots):

@@ -47,7 +47,7 @@ def set_all_rules(world: "CrabChampsWorld") -> None:
 
 
 def set_location_rules(world: "CrabChampsWorld") -> None:
-    limit_pool = bool(world.options.limit_pickup_pool.value)
+    limit_pool = world.limit_pool
 
     for location in world.get_locations():
         if not hasattr(location, "category"):

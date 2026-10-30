@@ -1,7 +1,7 @@
 -- AP/BiomeLock.lua
 -- Biome Lock: a run only enters biomes the player owns the Access item for.
 --
--- The game numbers its biomes 1 Tropical, 2 Arctic, 3 Desert, 4 Volcanic, and at the start of a run it builds the
+-- The game numbers its biomes 1 Tropical, 2 Ice, 3 Desert, 4 Volcano, and at the start of a run it builds the
 -- biome order [1, 2, 3, 4] in native code, so the first biome is always the one numbered 1. Two things are done here:
 --
 --   * Starting biome. In the lobby the biome data assets (CrabBiomeDA) are renumbered so the starting biome answers to
@@ -30,14 +30,18 @@ local function event(kind, data)
     if M.on_event then pcall(M.on_event, kind, data) end
 end
 
-M.NAMES = { "Tropical", "Arctic", "Desert", "Volcanic" }
+-- Player-facing names, for logs and messages.
+M.NAMES = { "Tropical", "Ice", "Desert", "Volcano" }
+-- The game's own names for the same biomes: its data assets are called DA_Biome_<name> and its HUD shows the name.
+-- Everything that looks at the game uses these, never M.NAMES.
+M.GAME_NAMES = { "Tropical", "Arctic", "Desert", "Volcanic" }
 local COUNT = #M.NAMES
 
 local ACCESS_ITEMS = {
     ["Tropical Access"] = 1,
-    ["Arctic Access"] = 2,
+    ["Ice Access"] = 2,
     ["Desert Access"] = 3,
-    ["Volcanic Access"] = 4,
+    ["Volcano Access"] = 4,
 }
 
 local TICK_MS = 500
@@ -94,7 +98,7 @@ function game.biome_assets()
     for _, da in ipairs(live_objects("CrabBiomeDA")) do
         local ok, name = pcall(function() return da:GetFullName() end)
         local key = ok and type(name) == "string" and name:match("DA_Biome_(%a+)%.") or nil
-        for real, n in ipairs(M.NAMES) do
+        for real, n in ipairs(M.GAME_NAMES) do
             if key == n then out[#out + 1] = { real = real, da = da } end
         end
     end
@@ -361,7 +365,7 @@ function M.update_hud()
     local gs = game.gs()
     if not gs then return 0 end
     local real = real_of_label(num(gs.Biome))
-    local name = real and M.NAMES[real]
+    local name = real and M.GAME_NAMES[real]
     if not name then return 0 end
     local changed = 0
     for _, w in ipairs(game.hud_widgets()) do

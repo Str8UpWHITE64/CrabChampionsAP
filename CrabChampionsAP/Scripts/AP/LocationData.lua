@@ -143,8 +143,7 @@ M.crystal_tax_percent = 25
 M.slowdown_percent = 35
 M.weak_shots_percent = 50
 M.bruise_percent = 30
-M.perk_boost_max_per_run = 3
-M.perk_boost_level_cap = 5
+M.perk_boost_levels = 1
 
 -- Whether receiving an item completes its pickup check. Seeds from before the
 -- option existed did this, so it defaults to on.
@@ -197,8 +196,7 @@ function M.configure(slot_data)
     M.slowdown_percent = tonumber(opts.slowdown_percent) or 35
     M.weak_shots_percent = tonumber(opts.weak_shots_percent) or 50
     M.bruise_percent = tonumber(opts.bruise_percent) or 30
-    M.perk_boost_max_per_run = tonumber(opts.perk_boost_max_per_run) or 3
-    M.perk_boost_level_cap = tonumber(opts.perk_boost_level_cap) or 5
+    M.perk_boost_levels = tonumber(opts.perk_boost_levels) or 1
     M.granted_item_checks = opts.granted_item_checks ~= false
     M.melee_for_completion = tonumber(opts.melee_for_completion) or 0
     M.ability_for_completion = tonumber(opts.ability_for_completion) or 0
@@ -708,10 +706,10 @@ function M.check_index(island_num, biome)
     return loop * BIOME_CYCLE + (biome - 1) * M.BIOME_LENGTH + slot
 end
 
-local BIOME_LABELS = { "Tropical", "Arctic", "Desert", "Volcanic" }
+local BIOME_LABELS = { "Tropical", "Ice", "Desert", "Volcano" }
 
 --- Name of a biome-layout island check, as the apworld calls it: "Complete Tropical Island 3",
---- "Reach Arctic Shop (Loop 2)". Used for log lines.
+--- "Reach Ice Shop (Loop 2)". Used for log lines.
 ---@param idx number biome check index (1..56)
 function M.check_name(idx)
     idx = tonumber(idx)

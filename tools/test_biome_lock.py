@@ -28,7 +28,7 @@ function mkarr(t)
 end
 function arr_list(a) local out = {} for i = 1, a:GetArrayNum() do out[i] = a[i] end return out end
 
-NAMES = { "Tropical", "Arctic", "Desert", "Volcanic" }
+NAMES = { "Tropical", "Arctic", "Desert", "Volcanic" }   -- the game's own asset names
 function mkworld()
     local w = { das = {}, texts = {} }
     for real, n in ipairs(NAMES) do
@@ -176,15 +176,34 @@ expect("new session forgets items", mod.is_owned(3), False)
 itemdata = lua.execute((REPO / "CrabChampionsAP/Scripts/AP/ItemData.lua").read_text(encoding="utf-8"))
 mod, w = fresh()
 mod.configure(lua.table(biome_lock=True, starting_biome=1), False)
-for i, name in enumerate(["Tropical", "Arctic", "Desert", "Volcanic"]):
+for i, name in enumerate(["Tropical", "Ice", "Desert", "Volcano"]):
     info = itemdata.from_ap_id(1890980 + i)
     expect(f"{name} Access resolves", info.name if info else None, f"{name} Access")
     expect(f"{name} Access category", info.cat if info else None, itemdata.CATEGORY.BIOME)
     expect(f"{name} Access taken by the module", mod.on_item(info), True)
     expect(f"{name} owned", mod.is_owned(i + 1), True)
 
+# --- the asset lookup, with the game's real asset names ----------------------------------------------------------------
+# No test double for biome_assets here: the module finds the assets through FindAllOf by the name DA_Biome_<game name>.
+lua.execute("""
+function FindAllOf(class)
+    if class ~= "CrabBiomeDA" then return nil end
+    local out = {}
+    for real, n in ipairs({ "Volcanic", "Desert", "Arctic", "Tropical", "Default__" }) do
+        out[#out + 1] = { IsValid = function() return true end,
+                          GetFullName = function() return "CrabBiomeDA /Game/Blueprint/DataAsset/DA_Biome_" .. n .. ".DA_Biome_" .. n end }
+    end
+    return out
+end
+""")
+mod = lua.execute(src)
+found = mod.game.biome_assets()
+expect("four biome assets found by their game names", len(found), 4)
+expect("assets map to biome numbers", sorted(found[i].real for i in range(1, len(found) + 1)), [1, 2, 3, 4])
+lua.execute("FindAllOf = nil")
+
 # --- steering, hand-picked cases ---------------------------------------------------------------------------------
-# Only Arctic (start): labels Arctic 1, Tropical 2, Desert 3, Volcanic 4. Next biome is Arctic again.
+# Only Ice (start): labels Ice 1, Tropical 2, Desert 3, Volcano 4. Next biome is Ice again.
 mod, w = fresh()
 mod.configure(lua.table(biome_lock=True, starting_biome=2), False)
 lua.globals().new_run(w)
@@ -193,7 +212,7 @@ expect("single biome repeats", order(w), [1, 1, 2, 3])
 expect("steer is stable", mod.steer(), False)
 r = lua.globals().portal(w)
 real, why = r.real, r.why
-expect("portal enters Arctic again", real, 2)
+expect("portal enters Ice again", real, 2)
 
 # An Access item received mid-biome replaces the repeat.
 mod.on_item(lua.table(name="Desert Access"))
@@ -202,26 +221,26 @@ expect("new access replaces a repeat", mod.steer(), True)
 expect("repeat gives way to Desert", order(w)[:2], [1, 3])
 expect("then it is stable", mod.steer(), False)
 
-# Arctic + Volcanic: from Arctic go to Volcanic, from Volcanic back to Arctic.
+# Ice + Volcano: from Ice go to Volcano, from Volcano back to Ice.
 mod, w = fresh()
 mod.configure(lua.table(biome_lock=True, starting_biome=2), False)
-mod.on_item(lua.table(name="Volcanic Access"))
+mod.on_item(lua.table(name="Volcano Access"))
 lua.globals().new_run(w)
 mod.steer()
 expect("skips locked biomes", order(w), [1, 4, 2, 3])
 r = lua.globals().portal(w)
 real, why = r.real, r.why
-expect("portal enters Volcanic", real, 4)
+expect("portal enters Volcano", real, 4)
 expect("current biome is last: rewritten", mod.steer(), True)
 expect("back to the start biome", order(w)[:2], [4, 1])
 r = lua.globals().portal(w)
 real, why = r.real, r.why
-expect("portal enters Arctic", real, 2)
+expect("portal enters Ice", real, 2)
 
 # Everything owned: the game's own order is left alone, except when the current biome is last.
 mod, w = fresh()
 mod.configure(lua.table(biome_lock=True, starting_biome=1), False)
-for n in ("Arctic", "Desert", "Volcanic"):
+for n in ("Ice", "Desert", "Volcano"):
     mod.on_item(lua.table(name=n + " Access"))
 lua.globals().new_run(w)
 expect("all owned: no rewrite", mod.steer(), False)

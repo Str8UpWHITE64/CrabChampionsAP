@@ -93,14 +93,14 @@ def run(ap_dir):
     names = [n for n, d in location_dictionary.items() if d.category.name != "EVENT"]
     early = [n for n in names if n.startswith(("Perk: ", "Relic: ", "Weapon Mod: ", "Melee Mod: ", "Ability Mod: "))
              or (re.search(r"Island (\d+)", n) and int(re.search(r"Island (\d+)", n).group(1)) <= 12)
-             or re.match(r"(Complete|Reach) (Tropical|Arctic|Desert|Volcanic) (Island|Shop)", n)]
+             or re.match(r"(Complete|Reach) (Tropical|Ice|Desert|Volcano) (Island|Shop)", n)]
     cases = [
         (dict(check_layout="island_number", crystal_cache_percentage=100), early, True),
-        (dict(check_layout="island_number", biome_lock=True, starting_biome="arctic", crystal_cache_percentage=100,
+        (dict(check_layout="island_number", biome_lock=True, starting_biome="ice", crystal_cache_percentage=100,
               granted_item_checks=False, biome_item_percentage=0), early, True),
         (dict(check_layout="biome", crystal_cache_percentage=100),
-         [n for n in early if not n.startswith(("Complete Arctic", "Reach Arctic", "Complete Desert", "Reach Desert",
-                                                "Complete Volcanic", "Reach Volcanic"))], True),
+         [n for n in early if not n.startswith(("Complete Ice", "Reach Ice", "Complete Desert", "Reach Desert",
+                                                "Complete Volcano", "Reach Volcano"))], True),
         (dict(check_layout="island_number"), names, False),
     ]
     for opts, excl, should_work in cases:

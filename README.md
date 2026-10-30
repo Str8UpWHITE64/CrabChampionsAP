@@ -62,14 +62,16 @@ Multiworlds made with apworld 1.4.0 or earlier still play with this mod, with th
 
 ## Configuration Options
 
-These options are set in your Archipelago YAML configuration file. They are grouped below in the same order they appear in the YAML template.
+These options are set in your Archipelago YAML configuration file, or on the options page on the website, where the Presets ("Short and easy", "Standard", "Long grind") fill in a set for you. They are grouped below in the same order and under the same headings as in the YAML template. Options you leave out keep the defaults shown here.
 
-### Victory Conditions
+When an option would clash with another (for example a pool smaller than the number needed to win), generation changes it for you and prints a warning saying what it changed.
 
-These options define what you need to accomplish to complete the game.
+### Goal
+
+What you need to do to win.
 
 #### `required_rank` (Default: Bronze)
-The minimum difficulty rank you must complete a run at for it to count toward victory. Ranks are determined by how many difficulty modifier points you have active:
+The rank you must reach to win. A run counts when you finish it at this rank or higher, so a Gold run also counts for Silver. Rank comes from how many difficulty modifier points you have active:
 
 | Rank | Modifier Points |
 |------|----------------|
@@ -87,153 +89,163 @@ The minimum difficulty rank you must complete a run at for it to count toward vi
 > **Note:** There are no "on Bronze" checks. Every clear is at least Bronze, so with `required_rank: bronze` the goal uses the plain checks ("Complete Island 15", "Complete Island 15 with Auto Rifle").
 
 #### `run_length` (Default: short)
-How many islands you must complete for a single run to count as finished. The game loops islands in cycles of 28.
+How many islands a run must complete to count as finished. The game loops islands in cycles of 28.
 - **short** = 28 islands (1 cycle)
 - **full** = 56 islands (2 cycles)
 
-> **Example:** With `run_length: short`, clearing all 28 islands in a single run counts as a completed run.
-
-#### `check_layout` (Default: island_number)
-How island checks are named and counted.
-- **island_number** = one check per island number, "Complete Island 15". Shop islands are "Reach Shop on Island 13".
-- **biome** = one check per biome and island slot, "Complete Arctic Island 1", "Reach Desert Shop". Rank and equipment checks follow the same names ("Complete Arctic Island 1 on Gold", "Complete Arctic Island 1 with Auto Rifle"). The same biome and slot only counts once, so repeating a biome in a run sends nothing new.
-
-A short run has exactly 28 biome checks of each kind. A full run adds a second set for its second pass through the biomes: "Complete Arctic Island 1 (Loop 2)". The number of checks is the same in both layouts. With `biome_lock` on, a biome check needs that biome's Access item. The goal counts run-level checks instead, "Complete Run with Auto Rifle on Gold", which go out when you clear the run's final island, whichever biome it is in. They need the item but no biome access. With a Bronze goal the final island's plain equipment check, in whichever biome the run ends, counts instead.
-
-Seeds made before this option existed use island numbers.
+Island and equipment checks scale with this, so a full run has about twice as many of them. Pickup checks and the per-rank "Complete Run" checks do not change.
 
 #### `weapons_for_completion` (Default: 5, Range: 1–21)
 How many different weapons you must complete a run with for victory. Each weapon requires its own full run.
 
-**Only weapons in the AP pool count.** Weapons you have available from the start never advance the goal, even when `equipment_check_mode` gives them their own location checks. `weapons_in_pool` is automatically raised to match this value when it is lower, so the goal is always satisfiable from pool weapons alone. The same rule applies to `melee_for_completion` and `ability_for_completion`.
+**Only weapons in the AP pool count.** Weapons you have available from the start never advance the goal, even when `equipment_check_mode` gives them their own location checks. `weapons_in_pool` is automatically raised to match this value when it is lower, so the goal is always satisfiable from pool weapons alone. A pool weapon you start with already counts. The same rules apply to `melee_for_completion` and `ability_for_completion`.
 
 > **Example:** With `weapons_for_completion: 3`, you need to finish 3 separate runs, each with a different **pool** weapon equipped, before you can win.
 
 #### `melee_for_completion` (Default: 3, Range: 0–6)
-How many different melee weapons you must complete a run with for victory. Set to **0** to disable melee completion requirements entirely (no melee location checks are generated).
-
-> **Example:** With `melee_for_completion: 2`, you need 2 completed runs using different melee weapons. Setting it to `0` removes all melee-related checks from the game.
+How many different melee weapons you must complete a run with for victory. Set to **0** to disable melee completion requirements entirely (no melee items in the pool and no melee location checks).
 
 #### `ability_for_completion` (Default: 3, Range: 0–9)
-How many different abilities you must complete a run with for victory. Set to **0** to disable ability completion requirements entirely (no ability location checks are generated).
-
-> **Example:** With `ability_for_completion: 2`, you need 2 completed runs using different abilities. Setting it to `0` removes all ability-related checks from the game.
+How many different abilities you must complete a run with for victory. Set to **0** to disable ability completion requirements entirely (no ability items in the pool and no ability location checks).
 
 ---
 
-### Item Pool & Equipment
+### Equipment
 
-These options control which equipment is randomized into the Archipelago item pool and how equipment-based location checks work.
+These options control which equipment is locked behind Archipelago items and how equipment-based checks work.
 
 #### `weapons_in_pool` (Default: 5, Range: 1–21)
-How many weapons are randomly selected and locked behind the AP item pool. You must receive these weapons from other players (or yourself) before you can use them. **Each weapon in the pool creates its own run-completion location check**, even if `weapons_for_completion` is lower.
+How many weapons are randomly selected and locked behind the AP item pool. You must receive these weapons before you can use them. **Each weapon in the pool gets its own per-island run checks**, even if `weapons_for_completion` is lower. Weapons not in the pool are available from the start.
 
-Set to 21 to put every weapon in the pool. In that case `starting_weapons` is forced to at least 1, so one random pool weapon is added to your starting inventory and you always begin with something usable.
+Set to 21 to put every weapon in the pool. In that case `starting_weapons` is forced to at least 1, so you always begin with something usable.
 
-> **Example:** With `weapons_in_pool: 5` and `weapons_for_completion: 3`, five specific weapons (e.g., Auto Rifle, Rocket Launcher, Arcane Wand, Blade Launcher, Sniper) are locked behind AP items. Each of those 5 weapons generates a "Complete a run with [Weapon]" location check — that's **5 location checks total**. However, you only need to complete runs with any **3** of them to satisfy the victory condition.
+> **Example:** With `weapons_in_pool: 5` and `weapons_for_completion: 3`, five weapons are locked behind AP items and each has its own checks, but you only need to complete runs with any **3** of them to win.
 
-#### `melee_in_pool` (Default: 0, Range: 0–6)
-How many melee weapons are locked behind the AP item pool. **Each melee weapon in the pool creates its own run-completion location check**, even if `melee_for_completion` is lower. Forced to 0 when `melee_for_completion` is 0. Set to 6 to put every melee weapon in the pool — one random pool melee is then added to your starting inventory so you always begin with something usable.
+#### `melee_in_pool` (Default: 3, Range: 0–6)
+How many melee weapons are locked behind the AP item pool, with their own checks. Raised to `melee_for_completion` when lower, and set to 0 when `melee_for_completion` is 0. At 6, `starting_melee` is forced to at least 1.
 
-> **Example:** With `melee_in_pool: 3` and `melee_for_completion: 1`, three melee weapons (e.g., Katana, Hammer, Dagger) are locked. All 3 generate location checks ("Complete a run with Katana", "Complete a run with Hammer", "Complete a run with Dagger"), but you only need to complete a run with **1** of them to win.
-
-#### `abilities_in_pool` (Default: 0, Range: 0–9)
-How many abilities are locked behind the AP item pool. **Each ability in the pool creates its own run-completion location check**, even if `ability_for_completion` is lower. Forced to 0 when `ability_for_completion` is 0. Set to 9 to put every ability in the pool — one random pool ability is then added to your starting inventory so you always begin with something usable.
-
-> **Example:** With `abilities_in_pool: 4` and `ability_for_completion: 2`, four abilities (e.g., Grenade, Black Hole, Ice Blast, Laser Beam) are locked. All 4 generate location checks, but only **2** must be completed for victory.
+#### `abilities_in_pool` (Default: 3, Range: 0–9)
+How many abilities are locked behind the AP item pool, with their own checks. Raised to `ability_for_completion` when lower, and set to 0 when `ability_for_completion` is 0. At 9, `starting_abilities` is forced to at least 1.
 
 #### `starting_weapons` (Default: 0, Range: 0–20)
-How many of your pool weapons you start with already unlocked. These are randomly selected from your pool and given to you immediately, so you can start working on equipment run checks right away. Must be less than `weapons_in_pool`. Forced to at least 1 when `weapons_in_pool` is 21, since no weapon would otherwise be available at the start.
+How many of your pool weapons you start with already unlocked, picked at random from your pool. Must be less than `weapons_in_pool` (it is reduced if not). Forced to at least 1 when `weapons_in_pool` is 21.
 
-A weapon you start with is removed from the item pool rather than duplicated — its slot goes to filler instead of a second copy of something you already hold.
+A weapon you start with is removed from the item pool rather than duplicated; its slot goes to filler.
 
-> **Example:** With `weapons_in_pool: 5` and `starting_weapons: 2`, you begin the game with 2 of your 5 pool weapons already unlocked and need to find the other 3 through AP.
+> **Example:** With `weapons_in_pool: 5` and `starting_weapons: 2`, you begin with 2 of your 5 pool weapons and need to find the other 3 through AP.
+
+#### `starting_melee` (Default: 0, Range: 0–5)
+The same as `starting_weapons`, for pool melee weapons. Must be less than `melee_in_pool`; forced to at least 1 when `melee_in_pool` is 6.
+
+#### `starting_abilities` (Default: 0, Range: 0–8)
+The same as `starting_weapons`, for pool abilities. Must be less than `abilities_in_pool`; forced to at least 1 when `abilities_in_pool` is 9.
 
 #### `equipment_check_mode` (Default: disabled)
-Controls how **non-pool** equipment run locations behave. Equipment that is in the AP pool always generates normal location checks. This option only affects equipment that is **not** in the pool (i.e., equipment you have access to from the start):
-- **regular** — Non-pool equipment creates normal location checks that can hold any item.
-- **filler_only** — Non-pool equipment creates location checks, but they can only hold filler/useful items (never progression).
-- **disabled** — Non-pool equipment does not create any location checks at all.
+Controls how checks for **non-pool** equipment (equipment you have from the start) behave. Equipment in the AP pool always has normal checks.
+- **regular** — Non-pool equipment has normal checks that can hold any item.
+- **filler_only** — Non-pool equipment has checks, but they only hold filler.
+- **disabled** — Non-pool equipment has no checks.
 
-> **Example:** If you have 5 weapons in the pool and 16 not in the pool, with `equipment_check_mode: disabled`, only the 5 pool weapons generate run-completion checks. With `equipment_check_mode: regular`, all 21 weapons generate checks.
+> **Example:** With 5 weapons in the pool and 16 not, `disabled` gives run checks for the 5 pool weapons only; `regular` gives them for all 21.
 
-> **Note:** These are bonus locations only — non-pool equipment runs never count toward `weapons_for_completion`, `melee_for_completion`, or `ability_for_completion`.
-
-> **Note:** This option has no effect on a category whose pool holds every item (`weapons_in_pool: 21`, `melee_in_pool: 6`, `abilities_in_pool: 9`) — there is no non-pool equipment left for it to act on.
+> **Note:** These are bonus checks. Non-pool equipment never counts toward `weapons_for_completion`, `melee_for_completion` or `ability_for_completion`. The option has no effect on a category whose pool holds everything.
 
 ---
 
-### Rank Modifiers
+### Run Checks
 
-These options control how difficulty ranks interact with location checks. They are most impactful when you want checks at multiple rank tiers.
+#### `check_layout` (Default: island_number)
+How island checks are named and counted.
+- **island_number** = one check per island number, "Complete Island 15". Shop islands are "Reach Shop on Island 13".
+- **biome** = one check per biome and island slot, "Complete Ice Island 1", "Reach Desert Shop". Rank and equipment checks follow the same names ("Complete Ice Island 1 on Gold", "Complete Ice Island 1 with Auto Rifle"). The same biome and slot only counts once, so repeating a biome in a run sends nothing new.
 
-#### `max_rank` (Default: Sapphire)
-The highest rank that generates location checks. Must be >= `required_rank`. Any rank above this produces no locations at all. The ranks between `required_rank` and `max_rank` provide optional extra checks when `extra_rank_checks` is set to anything other than `none`.
+A short run has exactly 28 biome checks of each kind. A full run adds a second set for its second pass through the biomes: "Complete Ice Island 1 (Loop 2)". The number of checks is the same in both layouts. With `biome_lock` on, a biome check needs that biome's Access item. The goal counts run-level checks instead, "Complete Run with Auto Rifle on Gold", which go out when you clear the run's final island, whichever biome it is in. They need the item but no biome access. With a Bronze goal the final island's plain equipment check, in whichever biome the run ends, counts instead.
 
-> **Example:** With `required_rank: bronze` and `max_rank: gold`, locations can be generated for Bronze (the plain checks), Silver, and Gold. Anything done at Sapphire or above produces no additional checks.
+Seeds made before this option existed use island numbers.
 
 #### `extra_rank_checks` (Default: none)
-Controls whether ranks **above** `required_rank` generate additional location checks. Replaces the legacy `extra_ranked_island_checks` + `non_progression_above_required` pair with a single option:
+Whether ranks besides `required_rank` get their own checks. A higher rank always counts for all lower ranks, so one Gold clear also covers the Silver and plain checks.
 
-- **`none`** — Only `required_rank` produces ranked checks. Higher ranks are ignored.
-- **`progression`** — Ranks above required (up to `max_rank`) add new ranked checks, and those locations can hold progression items. Greatly increases location count.
-- **`filler_only`** — Ranks above required add new ranked checks, but those locations are excluded from progression — they only ever hold filler items. Adds checks for variety without forcing high-rank grinding for critical items.
+- **`none`** — Only `required_rank` has ranked checks, plus the plain checks that any clear sends.
+- **`progression`** — Every rank from Silver up to `max_rank` gets ranked checks, and they can hold progression items. Greatly increases the number of checks.
+- **`filler_only`** — The same checks, but those above `required_rank` only hold filler. Adds checks for variety without forcing high-rank grinding for important items.
 
-Has no effect when `required_rank == max_rank` (no extra ranks exist).
+Has no effect when `required_rank` and `max_rank` are both Bronze.
 
-> **Example:** With `required_rank: bronze`, `max_rank: gold`, and `extra_rank_checks: progression`, completing Island 10 generates three separate checks: "Complete Island 10", "Complete Island 10 on Silver", and "Complete Island 10 on Gold". With `filler_only` instead, the same checks exist but the Silver/Gold ones won't hold critical items.
+> **Example:** With `required_rank: bronze`, `max_rank: gold` and `extra_rank_checks: progression`, completing Island 10 can send three checks: "Complete Island 10", "Complete Island 10 on Silver" and "Complete Island 10 on Gold". With `filler_only` the same checks exist, but the Silver and Gold ones will not hold critical items.
 
-#### `cascade_ranked_checks` (Default: false)
-When enabled, completing a check at a higher rank automatically completes the equivalent check at all lower ranks.
+#### `max_rank` (Default: Sapphire)
+The highest rank that gets its own checks. Raised to `required_rank` when lower. A run above `max_rank` still counts for every rank up to `max_rank`. Only used when `extra_rank_checks` is not `none`. Bronze here means only the plain checks.
 
-> **Example:** With cascade enabled, completing "Island 5 on Gold" also marks "Island 5 on Silver" and the plain "Complete Island 5" as complete. Without cascade, you'd need to complete each rank separately.
+> **Example:** With `required_rank: bronze` and `max_rank: gold`, checks exist for Bronze (the plain checks), Silver and Gold. A Sapphire run counts for all three and adds nothing else.
 
 #### `minimize_run_checks` (Default: false)
-When enabled, drops generalized run-completion checks that are made redundant by more-specific equipment-and-rank checks. When equipment runs are enabled (`equipment_check_mode != disabled`):
+Leaves out checks that a more specific check already covers, for a smaller world:
 
-- "Complete Island X on Rank" checks are removed
-- "Complete Island X with Weapon" checks are removed (unless they are the Bronze checks, see below)
+- "Complete Island X on Rank" (the per-rank island checks) are removed; the plain "Complete Island X" stays.
+- "Complete Island X with Weapon" (the plain equipment checks) are removed when the goal is above Bronze, since "with Weapon on Rank" covers them. With a Bronze goal or `extra_rank_checks` on they stay, because they are the Bronze checks.
 
-The most specific "Complete Island X with Weapon on Rank" check is always kept.
-
-> **Example:** With minimize on and equipment runs enabled, completing "Island 5 with Auto Rifle on Gold" is the only ranked check generated for that combination — the standalone "Island 5 on Gold" check is dropped since it would fire automatically from the same gameplay. The plain "Island 5 with Auto Rifle" check is the Bronze check, so it stays when Bronze is part of the goal or `extra_rank_checks` is on.
+"Complete Island X with Weapon on Rank" is always kept.
 
 ---
 
 ### Biomes
 
-The game has four biomes (Tropical, Arctic, Desert and Volcanic), seven islands each. Normally a run walks through them in that order.
+The game has four biomes (Tropical, Ice, Desert and Volcano), seven islands each. Normally a run walks through them in that order.
 
 #### `biome_lock` (Default: on)
-Your runs can only enter biomes you own the **Access** item for: Tropical Access, Arctic Access, Desert Access and Volcanic Access. You start with the Access item of your starting biome; the other three are in the multiworld. When the next biome of a run is one you do not own, the run goes to a biome you do own instead, and repeats the same biome if it is the only one. The island numbers keep counting up, so island-number checks stay reachable with a single biome; with the biome `check_layout`, each biome's checks need its Access item. The game's loop at island 29 starts again in your starting biome.
+Your runs can only enter biomes you own the **Access** item for: Tropical Access, Ice Access, Desert Access and Volcano Access. You start with the Access item of your starting biome; the other three are in the multiworld. When the next biome of a run is one you do not own, the run goes to a biome you do own instead, and repeats the same biome if it is the only one. The island numbers keep counting up, so island-number checks stay reachable with a single biome; with the biome `check_layout`, each biome's checks need its Access item. The game's loop at island 29 starts again in your starting biome.
 
 Turn it off to play the game's normal biome order, with no Access items.
 
 #### `starting_biome` (Default: random)
-Which biome your runs start in when `biome_lock` is on: tropical, arctic, desert, volcanic or random. You own its Access item from the start. The biome name on the screen shows the biome you are really in.
+Which biome your runs start in when `biome_lock` is on: tropical, ice, desert, volcano or random. You own its Access item from the start. The biome name on the screen shows the biome you are really in.
 
 ---
 
 ### Pickup Checks
+
+#### `pickup_checks` (Default: on)
+Picking up a perk, relic, weapon mod, melee mod or ability mod for the first time sends a check, e.g. "Perk: Driller". There are up to 341 of these (318 with `greed_item_mode: skip`). When off they do not exist, and the world is only island, equipment and rank checks. Perks, mods and relics are still received as items, but a small world only holds a random part of them.
 
 #### `granted_item_checks` (Default: true)
 When on, receiving a perk, mod or relic from the multiworld also completes that item's pickup check. For example, being sent Driller checks "Perk: Driller".
 
 When off, pickup checks only come from finding items in a run: loot, chests, totems and shop purchases. Items you drop and pick back up, and the lobby's free item, never count either way.
 
-### Pickup Subset Limits
+#### `limit_pickups` (Default: off)
+Limits pickups to a random set that matches your per-run inventory caps (24 perks, 24 weapon mods, 12 ability mods, 12 melee mods, 10 relics), so the pool is not far bigger than what you can carry.
+- **off** — Every pickup can be an item and has a check.
+- **pool_and_checks** — Only the chosen set is sent as items and has checks.
+- **pool_only** — Only the chosen set is sent as items; every pickup keeps its check.
+- **checks_only** — Every pickup can be an item, but only the chosen set has checks.
 
-These options scale the pickup pool down to per-run inventory caps so the AP pool doesn't grossly exceed what the player can actually carry. Both options share the same randomly-chosen subset (24 perks, 24 weapon mods, 12 ability mods, 12 melee mods, 10 relics) and can be enabled independently.
+Pickups outside the set can still be found in a run; they just are not sent or received, and where checks are limited they send no check. The set always includes a provider for every pickup that needs another one, so no check becomes unreachable. This replaces the old `limit_pickup_pool` and `limit_pickup_locations` options (pool_and_checks is both on).
 
-#### `limit_pickup_pool` (Default: false)
-When enabled, the AP item pool is limited to the chosen subset. Items not in the subset stay in-game and can be picked up normally during runs but are never sent or received via AP. Tag-group coverage is enforced so tag-gated locations like "Relic: Time Ring" remain reachable.
+#### `greed_item_mode` (Default: skip)
+Controls how Greed items are handled. Greed items (certain perks, relics, and melee mods) cannot be dropped once picked up, making them a permanent commitment.
+- **auto** — Greed items are added directly to your inventory when received from AP, just like any other item.
+- **drop** — Greed items are spawned on the floor in the lobby for you to pick up manually, so you can choose whether to pick them up or not.
+- **skip** — Greed items are removed from the item and location pools entirely. You can still find them naturally in-game.
 
-#### `limit_pickup_locations` (Default: false)
-When enabled, pickup location checks are only generated for items in the chosen subset. Items not in the subset still appear in-game but produce no location check when picked up.
+> **Example:** With `greed_item_mode: drop`, when you receive a Greed perk like "Glass Cannon" from AP, it appears on the ground near you instead of being auto-added. You can pick it up if you want it, or leave it.
 
 ---
 
-### Received Items Per Run
+### Inventory Slots
+
+#### `progressive_slots` (Default: off)
+You start with fewer inventory slots than the game allows and receive more as items. The in-game crystal purchase for slots is blocked. When off you have all slots from the start.
+
+#### `starting_perk_slots` (Default: 6, Range: 1–24)
+#### `starting_weapon_mod_slots` (Default: 6, Range: 1–24)
+#### `starting_ability_mod_slots` (Default: 4, Range: 1–12)
+#### `starting_melee_mod_slots` (Default: 4, Range: 1–12)
+With `progressive_slots` on, how many slots of each kind you start with. The rest are items in the pool ("Progressive Perk Slot" and so on). No effect when `progressive_slots` is off.
+
+---
+
+### Received Items
 
 Perks, mods and relics only last one run, so the mod gives you your received ones again at the start of every run. These options control how many.
 
@@ -247,15 +259,39 @@ When you clear the last island of a biome, this percentage of the received items
 
 > **Example:** Continuing the example above, clearing the first biome grants 5% of the remaining 190 items, so 10 more.
 
+#### `crystal_cache_percentage` (Default: 75, Range: 0–100)
+The share of the spare item slots that become crystals rather than extra copies of perks and mods. Spare slots are what is left after equipment, one of each pickup, Biome Access, slot items, traps and Perk Boosts. Crystals come in three sizes: Cache (50 crystals, 60% of them), Hoard (100, 35%) and Jackpot (500, 5%).
+
+> **Example:** At `75`, three-quarters of the spare slots are crystals and one-quarter are extra perk/mod copies. At `0`, all are perks/mods. At `100`, all are crystals.
+
+#### `guaranteed_items` (Default: empty)
+Extra copies of specific items, as a mapping of exact item names to copy counts:
+
+```yaml
+  guaranteed_items:
+    Time Bolt: 2
+    Driller: 3
+```
+
+Every perk, mod and relic is already in the pool once, so this is for more copies, or to include an item despite `limit_pickups`. Only perks and mods take extra copies; relics and equipment get one. Greed items are ignored with `greed_item_mode: skip`. Asking for more than the world can hold stops generation with a message.
+
+---
+
 ### Traps
 
 Traps are received items that make a run harder for a short time. None of them is permanent, removes your equipment, perks or progress, or can kill you. They are off by default. A trap that arrives in the lobby, or in the first seconds of an island, waits (see `trap_grace_seconds`). A reconnect or a game restart never fires the same trap twice.
 
 #### `trap_percentage` (Default: 0, Range: 0-100)
-The percentage of the filler slots that become traps. Filler slots are what is left after equipment, one of each pickup and any Perk Boosts.
+The percentage of the spare item slots that become traps. Spare slots are what is left after equipment, one of each pickup, Biome Access and slot items. Traps are placed before Perk Boosts, so 100 leaves none for them.
 
-#### Trap weights (each Default: see below, Range: 0-100)
-`trap_weight_crystal_tax` (20), `trap_weight_slowdown` (20), `trap_weight_weak_shots` (20), `trap_weight_bruise` (20), `trap_weight_grow` (10), `trap_weight_shrink` (10), `trap_weight_heavy_gravity` (10), `trap_weight_floaty_gravity` (10). The relative chance of each trap kind; 0 removes that trap.
+#### `trap_weights` (Default: Crystal Tax 20, Slowdown Trap 20, Weak Shots Trap 20, Bruise Trap 20, Grow Trap 10, Shrink Trap 10, Heavy Gravity Trap 10, Floaty Gravity Trap 10)
+How likely each kind of trap is, relative to the others, as a list of trap names with a whole number from 0 to 100. Only the traps you list can appear: leave one out, or give it 0, to remove it. If you list only some, the others are not in the pool. This replaces the eight `trap_weight_*` options.
+
+```yaml
+  trap_weights:
+    Crystal Tax: 30
+    Bruise Trap: 10
+```
 
 | Trap | Effect |
 |------|--------|
@@ -268,34 +304,31 @@ The percentage of the filler slots that become traps. Filler slots are what is l
 
 Other trap options: `trap_duration` (default 30, 5-120 seconds), `trap_grace_seconds` (default 10, 0-60), `crystal_tax_percent` (5-100), `slowdown_percent` (10-80), `weak_shots_percent` (10-90), `bruise_percent` (5-90). Effects end when the timer runs out, when the island is over (Slowdown), or when you die or return to the lobby.
 
+---
+
 ### Perk Boost
 
-A **Perk Boost** adds one level to a random perk you are holding in the current run. It is strong, so it is limited three ways:
+A **Perk Boost** adds levels to one random perk you are holding in the current run. Greed perks are skipped, and a boost with no perk to raise waits until you hold one.
 
-- `perk_boost_count` (Default: 0, Range: 0-50): how many Perk Boosts are in the pool (they take filler slots).
-- `perk_boost_max_per_run` (Default: 3, Range: 1-20): the most that take effect in one run; the rest wait for the next run.
-- `perk_boost_level_cap` (Default: 5, Range: 2-10): a boost never raises a perk above this level. Greed perks are skipped, and a boost with nothing to raise waits until you hold a perk it can.
+- `perk_boost_count` (Default: 0, Range: 0-50): how many Perk Boosts are in the pool (they take spare slots, after traps). A Perk Boost raises a random perk you are holding in the current run by `perk_boost_levels` levels, as if you had picked that perk up again.
+- `perk_boost_levels` (Default: 3, Range: 1-10): how many levels each Perk Boost adds.
 
-### Filler & Miscellaneous
+---
 
-#### `crystal_cache_percentage` (Default: 75, Range: 0–100)
-Controls what percentage of extra item pool slots are filled with Crystal Cache rewards (which grant crystals in-game) versus additional copies of perks and mods.
-
-> **Example:** At `75`, three-quarters of the filler slots are crystal rewards and one-quarter are extra perk/mod stacks. At `0`, all filler is perks/mods. At `100`, all filler is crystals.
-
-#### `greed_item_mode` (Default: auto)
-Controls how Greed items are handled. Greed items (certain perks, relics, and melee mods) cannot be dropped once picked up, making them a permanent commitment.
-- **auto** — Greed items are added directly to your inventory when received from AP, just like any other item.
-- **drop** — Greed items are spawned on the floor in the lobby for you to pick up manually, so you can choose whether to pick them up or not.
-- **skip** — Greed items are removed from the item and location pools entirely. You can still find them naturally in-game.
-
-> **Example:** With `greed_item_mode: drop`, when you receive a Greed perk like "Glass Cannon" from AP, it appears on the ground near you instead of being auto-added. You can pick it up if you want it, or leave it.
-
-#### `guaranteed_items` (Default: empty)
-A dictionary of specific items guaranteed to appear in the item pool.
+### Multiplayer
 
 #### `death_link` (Default: false)
 When enabled, dying in Crab Champions sends a death to all connected Death Link players, and deaths from other players kill you. Deaths are only sent and received during runs — not in the lobby.
+
+### Options that were removed or changed
+
+- `cascade_ranked_checks` is gone. A run at a higher rank always counts for the lower ranks now. Worlds made before keep the setting they were made with.
+- `limit_pickup_pool` and `limit_pickup_locations` became `limit_pickups`.
+- The eight `trap_weight_*` options became one `trap_weights` list.
+- `perk_boost_max_per_run` and `perk_boost_level_cap` are gone; a Perk Boost now adds `perk_boost_levels` levels (new, default 3) with no per-run limit.
+- `melee_in_pool` and `abilities_in_pool` now default to 3, which is what the old defaults ended up as anyway.
+- `starting_melee` and `starting_abilities` are new.
+- Archipelago ignores an option name it does not know, with a warning, so an old YAML still generates; the removed options just stop doing anything.
 
 ## Item Categories
 
@@ -308,7 +341,7 @@ When enabled, dying in Crab Champions sends a death to all connected Death Link 
 - **Melee Mods** (17): Augmentations like Big Claws, Fire Claws
 - **Ability Mods** (45): Augmentations like Beam Turret, Homing Ability
 - **Filler**: Crystal Cache, Crystal Hoard, Crystal Jackpot, Perk Boost
-- **Biome Access** (4): Tropical Access, Arctic Access, Desert Access, Volcanic Access (only with `biome_lock`)
+- **Biome Access** (4): Tropical Access, Ice Access, Desert Access, Volcano Access (only with `biome_lock`)
 - **Traps** (8): Crystal Tax, Slowdown, Weak Shots, Bruise, Grow, Shrink, Heavy Gravity, Floaty Gravity
 
 ## Difficulty Ranks

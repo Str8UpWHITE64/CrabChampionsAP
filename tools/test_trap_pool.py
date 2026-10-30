@@ -28,8 +28,7 @@ class Opt:
 
 def make_options(**kw):
     o = types.SimpleNamespace(guaranteed_items=Opt({}), crystal_cache_percentage=Opt(75))
-    for name in items.TRAP_WEIGHT_OPTIONS:
-        setattr(o, name, Opt(10))
+    o.trap_weights = Opt({name: 10 for name in items.TRAP_NAMES})
     o.trap_percentage = Opt(0)
     o.perk_boost_count = Opt(0)
     for k, v in kw.items():
@@ -74,22 +73,25 @@ half = sum(1 for n in names(pool) if n in TRAPS)
 check("50 percent is about half of 100 percent", abs(half - n_trap / 2) <= 2)
 
 # a zero weight removes that trap
-pool = build(trap_percentage=100, trap_weight_crystal_tax=0, trap_weight_grow=0)
+pool = build(trap_percentage=100, trap_weights={n: (0 if n in ('Crystal Tax', 'Grow Trap') else 10) for n in items.TRAP_NAMES})
 got = set(names(pool))
 check("zero weight removes a trap", "Crystal Tax" not in got and "Grow Trap" not in got)
 check("other traps remain", "Shrink Trap" in got)
 
 # all weights zero means no traps at all
-zero = {k: 0 for k in items.TRAP_WEIGHT_OPTIONS}
-pool = build(trap_percentage=100, **zero)
+zero = {k: 0 for k in items.TRAP_NAMES}
+pool = build(trap_percentage=100, trap_weights=zero)
 check("all-zero weights give no traps", not (set(names(pool)) & TRAPS))
 check("all-zero size", len(pool) == COUNT)
 
 # one weight alone gives only that trap
-only = dict(zero, trap_weight_bruise=5)
-pool = build(trap_percentage=100, **only)
+pool = build(trap_percentage=100, trap_weights={"Bruise Trap": 5})
 kinds = {n for n in names(pool) if n in TRAPS}
 check("single weight gives a single trap", kinds == {"Bruise Trap"})
+
+# traps left out of the option are not in the pool
+pool = build(trap_percentage=100, trap_weights={"Grow Trap": 3, "Shrink Trap": 3})
+check("unlisted traps are left out", {n for n in names(pool) if n in TRAPS} == {"Grow Trap", "Shrink Trap"})
 
 # perk boost count
 pool = build(perk_boost_count=12)

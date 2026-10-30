@@ -207,9 +207,9 @@ add(970, M.CATEGORY.FILLER, "Perk Boost")
 
 -- Biome Access (cc_code 980-983), in the game's biome order
 add(980, M.CATEGORY.BIOME, "Tropical Access")
-add(981, M.CATEGORY.BIOME, "Arctic Access")
+add(981, M.CATEGORY.BIOME, "Ice Access")
 add(982, M.CATEGORY.BIOME, "Desert Access")
-add(983, M.CATEGORY.BIOME, "Volcanic Access")
+add(983, M.CATEGORY.BIOME, "Volcano Access")
 
 -- Event (cc_code 1000)
 add(1000, M.CATEGORY.EVENT, "Victory")

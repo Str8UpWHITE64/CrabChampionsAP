@@ -207,14 +207,14 @@ RANK_NAMES = ["Bronze", "Silver", "Gold", "Sapphire", "Emerald", "Ruby", "Diamon
 SHOP_ISLANDS = frozenset({6, 13, 20, 27, 34, 41, 48, 55})
 
 
-BIOME_NAMES = ["Tropical", "Arctic", "Desert", "Volcanic"]
+BIOME_NAMES = ["Tropical", "Ice", "Desert", "Volcano"]
 BIOME_LENGTH = 7        # islands per biome; the 6th is the shop
 BIOME_CYCLE = 28        # islands in one pass through the four biomes
 
 
 def biome_check_prefix(k: int) -> str:
     """Name of the biome-layout check with index k (0..55), without rank or
-    equipment: 'Complete Tropical Island 3', 'Reach Arctic Shop (Loop 2)'."""
+    equipment: 'Complete Tropical Island 3', 'Reach Ice Shop (Loop 2)'."""
     loop, rest = divmod(k, BIOME_CYCLE)
     biome, slot = divmod(rest, BIOME_LENGTH)
     name = BIOME_NAMES[biome]

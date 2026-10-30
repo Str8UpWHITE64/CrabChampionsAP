@@ -45,7 +45,7 @@ M.now = function() return os.time() end
 M.game = nil                  -- set below
 
 local ledger = { identity = nil, last = -1, boosts = 0, traps = {} }
-local run = { boosts_used = 0, island = nil, island_since = nil, last_hit = 0 }
+local run = { island = nil, island_since = nil, last_hit = 0 }
 local active = {}             -- kind -> { name, ops, expires, island }
 local state_dirty_warned = false
 
@@ -403,13 +403,11 @@ end
 
 local function try_boost()
     if ledger.boosts <= 0 then return end
-    if run.boosts_used >= (LocationData.perk_boost_max_per_run or 3) then return end
     local ItemApply = M.item_apply and M.item_apply() or item_apply()
     if not (ItemApply and ItemApply.boost_random_perk) then return end
-    local name, level = ItemApply.boost_random_perk(LocationData.perk_boost_level_cap or 5)
+    local name, level = ItemApply.boost_random_perk(LocationData.perk_boost_levels or 1)
     if not name then return end    -- nothing eligible yet; the boost keeps waiting
     ledger.boosts = ledger.boosts - 1
-    run.boosts_used = run.boosts_used + 1
     save_ledger()
     log("Perk Boost: " .. name .. " is now level " .. tostring(level))
 end
@@ -420,7 +418,6 @@ function M.tick()
 
     if lobby then
         if next(active) then end_all("back in the lobby") end
-        run.boosts_used = 0
         run.island, run.island_since = nil, nil
         return
     end
@@ -477,14 +474,14 @@ end
 function M.reset()
     end_all("reset")
     ledger = { identity = nil, last = -1, boosts = 0, traps = {} }
-    run = { boosts_used = 0, island = nil, island_since = nil, last_hit = 0 }
+    run = { island = nil, island_since = nil, last_hit = 0 }
     save_ledger()
 end
 
 -- Test helpers
 function M._reset_for_test(identity)
     ledger = { identity = identity, last = -1, boosts = 0, traps = {} }
-    run = { boosts_used = 0, island = nil, island_since = nil, last_hit = 0 }
+    run = { island = nil, island_since = nil, last_hit = 0 }
     active = {}
 end
 

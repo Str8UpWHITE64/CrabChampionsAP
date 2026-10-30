@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, Set, List
 
 from Options import OptionError
@@ -19,7 +20,7 @@ from .Locations import (
     BIOME_BASE_CATEGORY, ISLAND_TO_BIOME_CATEGORY, biome_index_from_name,
     biome_index_to_biome,
 )
-from .Options import CrabChampsOption
+from .Options import CrabChampsOption, crab_option_groups, crab_option_presets
 from .rules import EQUIPMENT_CATEGORIES, set_all_rules
 
 
@@ -36,6 +37,8 @@ class CrabChampsWeb(WebWorld):
     )
     game_info_languages = ["en"]
     tutorials = [setup_en]
+    option_groups = crab_option_groups
+    options_presets = crab_option_presets
 
 
 class CrabChampsWorld(World):
@@ -83,7 +86,31 @@ class CrabChampsWorld(World):
         # Game biome number (1-4) the runs start in; 0 while biome_lock is off.
         self.start_biome: int = 0
 
+    @property
+    def limit_pool(self) -> bool:
+        """Limit Pickups sends only the chosen set as items."""
+        return self.options.limit_pickups.value in (1, 2)
+
+    @property
+    def limit_locations(self) -> bool:
+        """Limit Pickups gives only the chosen set pickup checks."""
+        return self.options.limit_pickups.value in (1, 3)
+
+    _ADJUSTED = ("max_rank", "weapons_for_completion", "melee_for_completion", "ability_for_completion",
+                 "weapons_in_pool", "melee_in_pool", "abilities_in_pool",
+                 "starting_weapons", "starting_melee", "starting_abilities")
+
     def generate_early(self):
+        asked = {name: getattr(self.options, name).value for name in self._ADJUSTED}
+        self._generate_early()
+        for name, before in asked.items():
+            after = getattr(self.options, name).value
+            if after != before:
+                logging.warning(
+                    "Crab Champions (%s): %s changed from %s to %s to fit the other options.",
+                    self.player_name, name, before, after)
+
+    def _generate_early(self):
         # A tracker rebuilding this slot passes the random choices of the real
         # seed back in (see interpret_slot_data); use them instead of rolling.
         regen = getattr(self.multiworld, "re_gen_passthrough", {}).get(self.game)
@@ -155,6 +182,39 @@ class CrabChampsWorld(World):
         self.non_pool_melee = [m for m in melee_item_names if m not in self.pool_melee_set]
         self.non_pool_abilities = [a for a in ability_item_names if a not in self.pool_ability_set]
 
+        # Starting counts stay below the pool size (at least one item must
+        # still be found).  A full pool leaves nothing unlocked at the start,
+        # so at least one pool item is precollected to keep the player able to
+        # play.
+        def pick_starting(option, in_pool, pool_items, total, key):
+            if option.value > max(0, in_pool - 1):
+                option.value = max(0, in_pool - 1)
+            if in_pool == total and option.value < 1:
+                option.value = 1
+            chosen = self.random.sample(pool_items, option.value) if option.value > 0 else []
+            if regen:
+                chosen = list(regen[key])
+            for name in chosen:
+                self.multiworld.push_precollected(self.create_item(name))
+            return chosen
+
+        self.starting_weapon_names = pick_starting(
+            self.options.starting_weapons, self.options.weapons_in_pool.value,
+            self.pool_weapons, len(weapon_item_names), "starting_weapon_names")
+        self.starting_melee = pick_starting(
+            self.options.starting_melee, self.options.melee_in_pool.value,
+            self.pool_melee, len(melee_item_names), "starting_melee")
+        self.starting_abilities = pick_starting(
+            self.options.starting_abilities, self.options.abilities_in_pool.value,
+            self.pool_abilities, len(ability_item_names), "starting_abilities")
+
+        # Biome lock: the player starts with the Access item of the starting biome.
+        self.start_biome = 0
+        if self.options.biome_lock.value:
+            self.start_biome = regen["start_biome"] if regen else self.options.starting_biome.value
+            self.multiworld.push_precollected(
+                self.create_item(biome_access_item_names[self.start_biome - 1]))
+
         equip_mode = self.options.equipment_check_mode.value  # 0=regular, 1=filler_only, 2=disabled
         minimize = bool(self.options.minimize_run_checks.value)
         # Equipment runs exist when EITHER non-pool equipment is enabled
@@ -170,60 +230,6 @@ class CrabChampsWorld(World):
         )
         drop_redundant = minimize and have_equipment
         self._drop_redundant = drop_redundant
-
-        # Clamp starting_weapons < weapons_in_pool (must find at least one)
-        max_starting = max(0, self.options.weapons_in_pool.value - 1)
-        if self.options.starting_weapons.value > max_starting:
-            self.options.starting_weapons.value = max_starting
-
-        # A full weapon pool leaves no weapon available at the start, so at
-        # least one pool weapon must be precollected.
-        if (self.options.weapons_in_pool.value == len(weapon_item_names)
-                and self.options.starting_weapons.value < 1):
-            self.options.starting_weapons.value = 1
-
-        # A free check is one that needs no item.  Without the unranked island
-        # checks (dropped by minimize when extra ranks are on) almost every
-        # check needs a pool weapon, so a seed that starts with none can have
-        # nowhere to put its first one.
-        if (self.options.extra_rank_checks.value != 0 and drop_redundant
-                and self.options.starting_weapons.value < 1):
-            self.options.starting_weapons.value = 1
-
-        # Select and precollect starting weapons from the pool
-        self.starting_weapon_names = []
-        if self.options.starting_weapons.value > 0:
-            self.starting_weapon_names = self.random.sample(
-                self.pool_weapons, self.options.starting_weapons.value
-            )
-            if regen:
-                self.starting_weapon_names = list(regen["starting_weapon_names"])
-            for weapon_name in self.starting_weapon_names:
-                self.multiworld.push_precollected(self.create_item(weapon_name))
-
-        # Melee/abilities have no starting-count option, so a full pool gets
-        # exactly one random precollected item for the same reason.
-        self.starting_melee = []
-        self.starting_abilities = []
-        if self.options.melee_in_pool.value == len(melee_item_names):
-            self.starting_melee = self.random.sample(self.pool_melee, 1)
-            if regen:
-                self.starting_melee = list(regen["starting_melee"])
-            for melee_name in self.starting_melee:
-                self.multiworld.push_precollected(self.create_item(melee_name))
-        if self.options.abilities_in_pool.value == len(ability_item_names):
-            self.starting_abilities = self.random.sample(self.pool_abilities, 1)
-            if regen:
-                self.starting_abilities = list(regen["starting_abilities"])
-            for ability_name in self.starting_abilities:
-                self.multiworld.push_precollected(self.create_item(ability_name))
-
-        # Biome lock: the player starts with the Access item of the starting biome.
-        self.start_biome = 0
-        if self.options.biome_lock.value:
-            self.start_biome = regen["start_biome"] if regen else self.options.starting_biome.value
-            self.multiworld.push_precollected(
-                self.create_item(biome_access_item_names[self.start_biome - 1]))
 
         # Always-on categories
         self.enabled_location_categories.add(CrabChampsLocationCategory.ISLAND)
@@ -271,8 +277,7 @@ class CrabChampsWorld(World):
 
         # Pickup subsets: select once when either limit option is enabled.
         # Both options share the same chosen subset.
-        if (self.options.limit_pickup_pool.value
-                or self.options.limit_pickup_locations.value):
+        if self.options.limit_pickups.value:
             exclude = (GREED_ITEM_NAMES
                        if self.options.greed_item_mode.value == 2
                        else frozenset())
@@ -387,7 +392,7 @@ class CrabChampsWorld(World):
 
         # Limit pickup locations to the chosen subset when enabled.
         # Only restrict pickup categories — equipment runs are handled separately.
-        if self.options.limit_pickup_locations.value:
+        if self.limit_locations:
             if category in (
                 CrabChampsLocationCategory.PERK,
                 CrabChampsLocationCategory.RELIC,
@@ -423,10 +428,8 @@ class CrabChampsWorld(World):
         bronze_tier = required_rank == 0 or extra_ranked
 
         # Island locations: filter by run_length.
-        # With extra ranks on, minimize leaves islands to the equipment checks.
+        # The plain island check stays whatever else is dropped.
         if category == CrabChampsLocationCategory.ISLAND:
-            if extra_ranked and self._drop_redundant:
-                return False
             island_num = self._extract_island_num(location.name)
             return island_num <= run_length
 
@@ -639,7 +642,7 @@ class CrabChampsWorld(World):
         # When limit_pickup_pool is on, only items in the chosen subset are
         # eligible for pool steps 4-6 (relics + stackables + extras).
         pickup_subsets = (
-            self.pickup_subsets if self.options.limit_pickup_pool.value else None
+            self.pickup_subsets if self.limit_pool else None
         )
         # Precollected equipment is already in the player's inventory, so it
         # must not also occupy a slot in the item pool.
@@ -647,6 +650,11 @@ class CrabChampsWorld(World):
             self.starting_weapon_names + self.starting_melee + self.starting_abilities
         )
         remaining = location_count - slot_item_count
+        if remaining < 0:
+            raise OptionError(
+                "Crab Champions (%s): %d checks cannot hold the %d Biome Access and slot items. Turn on more "
+                "checks (Pickup Checks, Extra Rank Checks, Equipment Check Mode) or start with more slots." % (
+                    self.player_name, location_count, slot_item_count))
         pool = BuildItemPool(self.multiworld, remaining, self.options,
                              self.pool_weapons, self.pool_melee, self.pool_abilities,
                              exclude_names=exclude,
@@ -720,8 +728,11 @@ class CrabChampsWorld(World):
                 classification = ItemClassification.progression
             else:
                 classification = ItemClassification.useful
-        elif item_cat in (CrabChampsItemCategory.SLOT, CrabChampsItemCategory.BIOME):
+        elif item_cat == CrabChampsItemCategory.BIOME:
             classification = ItemClassification.progression
+        elif item_cat == CrabChampsItemCategory.SLOT:
+            # No check needs a slot item, so it is not progression.
+            classification = ItemClassification.useful
         elif item_cat == CrabChampsItemCategory.TRAP:
             classification = ItemClassification.trap
         elif name == "Perk Boost":
@@ -807,7 +818,9 @@ class CrabChampsWorld(World):
                 # Derived booleans, kept in slot_data for client compatibility.
                 "extra_ranked_island_checks": self.options.extra_rank_checks.value != 0,
                 "non_progression_above_required": self.options.extra_rank_checks.value == 2,
-                "cascade_ranked_checks": bool(self.options.cascade_ranked_checks.value),
+                # A higher rank always counts for the lower ones now. The client still reads
+                # this name, and worlds made before it was fixed carry their own value.
+                "cascade_ranked_checks": True,
                 "minimize_run_checks": bool(self.options.minimize_run_checks.value),
                 "run_length": self.options.run_length.value,
                 # 0 = island_number, 1 = biome. Seeds without it use island numbers.
@@ -836,8 +849,10 @@ class CrabChampsWorld(World):
                 "guaranteed_items": self.options.guaranteed_items.value,
                 "greed_item_mode": self.options.greed_item_mode.value,
                 "pickup_checks": bool(self.options.pickup_checks.value),
-                "limit_pickup_pool": bool(self.options.limit_pickup_pool.value),
-                "limit_pickup_locations": bool(self.options.limit_pickup_locations.value),
+                # Limit Pickups as the two switches the client reads.
+                "limit_pickups": self.options.limit_pickups.value,
+                "limit_pickup_pool": self.limit_pool,
+                "limit_pickup_locations": self.limit_locations,
                 "granted_item_checks": bool(self.options.granted_item_checks.value),
                 "pickup_subsets": self.pickup_subsets,
                 "progressive_slots": bool(self.options.progressive_slots.value),
@@ -848,7 +863,7 @@ class CrabChampsWorld(World):
                 "starting_item_percentage": self.options.starting_item_percentage.value,
                 "biome_item_percentage": self.options.biome_item_percentage.value,
                 "biome_lock": bool(self.options.biome_lock.value),
-                # Game biome number (Tropical 1, Arctic 2, Desert 3, Volcanic 4)
+                # Game biome number (Tropical 1, Ice 2, Desert 3, Volcano 4)
                 # the runs start in; 0 when biome_lock is off.
                 "starting_biome": self.start_biome,
                 "death_link": bool(self.options.death_link.value),
@@ -859,8 +874,7 @@ class CrabChampsWorld(World):
                 "slowdown_percent": self.options.slowdown_percent.value,
                 "weak_shots_percent": self.options.weak_shots_percent.value,
                 "bruise_percent": self.options.bruise_percent.value,
-                "perk_boost_max_per_run": self.options.perk_boost_max_per_run.value,
-                "perk_boost_level_cap": self.options.perk_boost_level_cap.value,
+                "perk_boost_levels": self.options.perk_boost_levels.value,
             },
             "death_link": bool(self.options.death_link.value),
             "seed": self.multiworld.seed_name,
