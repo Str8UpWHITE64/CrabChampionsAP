@@ -52,8 +52,8 @@ O.create({"server": "127.0.0.1:1", "slot": "Crab", "password": ""})
 lua.execute("""
 checked = {}
 client = { is_location_checked = function(self, id) return checked[id] == true end }
-item_apply = { unlocked = {} }
-item_data = { CATEGORY = { WEAPON = 1, MELEE = 2, ABILITY = 3 }, get_da = function() return nil end }
+item_apply = { unlocked = { ['Auto Rifle'] = true, ['Seagle'] = true } }
+item_data = { CATEGORY = { WEAPON = 1, MELEE = 2, ABILITY = 3 }, get_da = function(cat, name) return name end }
 function refresh() require('AP/APOverlay').update_equipment_progress(
     require('AP/LocationData'), item_apply, item_data, client) end
 function mark_biome(biome, name, rank)
@@ -78,6 +78,8 @@ configure("{ check_layout = 1, bronze_checks = false, required_rank = 0, weapons
 BL.configure(lua.eval("{ biome_lock = true, starting_biome = 2 }"), False)
 g.refresh()
 s = O.get_shown()
+check("not-found count", "+0" not in s["equip_weapons_text"] and "not found" not in s["equip_weapons_text"],
+      s["equip_weapons_text"])
 check("start biome unlocked", s["biome_access_text"] == "Biomes unlocked (1/4): Ice", s["biome_access_text"])
 check("nothing cleared", "Auto Rifle - 0/4 biomes" in s["equip_weapons_text"], s["equip_weapons_text"])
 
@@ -108,6 +110,21 @@ g.mark_biome(1, "Auto Rifle", 0)
 g.refresh()
 check("required rank counts", "Auto Rifle - 1/4 biomes (Desert)" in O.get_shown()["equip_weapons_text"],
       O.get_shown()["equip_weapons_text"])
+
+# Only received items are listed; the rest are counted.
+lua.execute("item_apply.unlocked['Seagle'] = nil")
+g.refresh()
+t = O.get_shown()["equip_weapons_text"]
+check("unreceived hidden", "Seagle" not in t and "+1 not found yet" in t, t)
+lua.execute("item_apply.unlocked['Seagle'] = true")
+
+# Overflow: with many weapons received the list is trimmed to the panel's line budget and the rest is counted.
+names = ["Weapon %02d" % i for i in range(30)]
+configure("{ check_layout = 1, bronze_checks = false, required_rank = 0 }", pool=names)
+lua.execute("for i = 0, 29 do item_apply.unlocked[string.format('Weapon %02d', i)] = true end")
+g.refresh()
+t = O.get_shown()["equip_weapons_text"]
+check("overflow trimmed", t.count(chr(10)) <= 16 and "more received" in t, t)
 
 # Lock off: no unlock line.
 BL.configure(lua.eval("{ biome_lock = false }"), False)

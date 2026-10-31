@@ -67,6 +67,13 @@ function ConnStatus.info_text(d)
     return table.concat(lines, "\n")
 end
 
+--- One short line for the title strip: "server - N items - N checks".
+function ConnStatus.strip_text(d)
+    if not d then return "" end
+    return tostring(d.server or "?") .. "  \xC2\xB7  " .. tostring(d.items or 0) .. " items  \xC2\xB7  "
+        .. tostring(d.checked or 0) .. " checks"
+end
+
 --- The warning for a UE4SS-settings.ini whose HookLoadMap isn't 0, or nil when it is.
 --- UE4SS hooks LoadMap when the line is missing, so a missing line warns too.
 function ConnStatus.settings_warning(ini_text)

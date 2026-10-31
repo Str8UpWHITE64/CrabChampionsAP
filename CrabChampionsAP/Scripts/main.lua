@@ -86,6 +86,13 @@ local function on_item(it)
         tonumber(it.flags) or 0
     ))
 
+    -- The window's Recent Items list: what arrived and who it came from
+    if APOverlay and APOverlay.add_item_log then
+        local sender = nil
+        pcall(function() sender = APClient._client:get_player_alias(tonumber(it.player)) end)
+        APOverlay.add_item_log(name .. " from " .. tostring(sender or "Archipelago"))
+    end
+
     -- Traps and Perk Boosts are handled by their own module (with its own
     -- replay ledger); everything else is applied right away.
     local identity = tostring(APClient.slot_data and APClient.slot_data.seed) .. "/" .. tostring(APClient.slot)
@@ -111,7 +118,6 @@ end
 
 local function on_message(msg)
     clog("MSG", tostring(msg))
-    if APOverlay then APOverlay.add_item_log(tostring(msg)) end
 end
 
 ------------------------------------------------------------
