@@ -108,29 +108,37 @@ end
 local function run_timers()
     local t = now_ms()
     local count = #timers
-    local keep = {}
+    local ended = false
     for i = 1, count do
         local tm = timers[i]
         if tm.dead then
-            -- dropped
+            tm.gone = true
+            ended = true
         elseif tm.due <= t then
             local ok, stop = run_job(tm.fn)
             if not ok then
                 log("timer stopped on error")
+                tm.gone = true
+                ended = true
             elseif tm.once or stop == true then
-                -- finished
+                tm.gone = true
+                ended = true
             else
                 -- keep the average period: the next call is due one period after this one was due
                 local nxt = tm.due + tm.ms
                 tm.due = (nxt > t) and nxt or (t + 1)
-                keep[#keep + 1] = tm
             end
-        else
-            keep[#keep + 1] = tm
         end
     end
-    for i = count + 1, #timers do keep[#keep + 1] = timers[i] end   -- added while running
-    timers = keep
+    -- The list is only rebuilt when a timer ended (it used to be rebuilt every frame).
+    if ended then
+        local keep = {}
+        for i = 1, #timers do
+            local tm = timers[i]
+            if not tm.gone then keep[#keep + 1] = tm end
+        end
+        timers = keep
+    end
 end
 
 local function gc_step()

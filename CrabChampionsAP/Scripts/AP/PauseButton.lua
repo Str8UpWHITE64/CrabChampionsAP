@@ -13,6 +13,7 @@
 
 local GameThread = require("AP/GameThread")
 local ClickWatch = require("AP/ClickWatch")
+local ObjCache = require("AP/ObjCache")
 
 local M = {}
 
@@ -37,7 +38,8 @@ local state = {
     box_class = nil, template = nil, added = 0, adopted = false,
 }
 local opener = nil              -- function(): opens the connection window
-local find_pc = function() return FindFirstOf("CrabPC") end
+local pc_list = ObjCache.list("CrabPC", nil, 2)   -- remembered; it is asked for four times a second
+local find_pc = function() return pc_list()[1] end
 local name_counter = 0
 local loop = nil
 local enabled = false

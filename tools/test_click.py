@@ -135,6 +135,10 @@ FName = function(s) return s end
 FText = function(s) return s end
 ExecuteInGameThread = function(fn) fn() end
 test_pc = nil
+FindAllOf = function(c)
+    if c == "CrabPC" and test_pc then return { test_pc } end
+    return nil
+end
 FindFirstOf = function(c)
     if c == "GameInstance" then return new_obj("GameInstance", "gi") end
     if c == "CrabPC" then return test_pc end
@@ -313,7 +317,7 @@ PB.install(lua.eval("function() opened = opened + 1 end"))
 
 
 def menu_case(opts_lua):
-    lua.execute(f"menu = make_menu({opts_lua}); test_pc = new_obj('CrabPC', 'pc', {{InGameMenuUI = menu}})")
+    lua.execute(f"menu = make_menu({opts_lua}); test_pc = new_obj('CrabPC', 'pc', {{InGameMenuUI = menu}}); package.loaded['AP/ObjCache'].clear_all()")
 
 
 def box_names():
@@ -324,7 +328,7 @@ def box_names():
 
 
 # No controller / no menu: nothing happens.
-lua.execute("test_pc = nil")
+lua.execute("test_pc = nil; package.loaded['AP/ObjCache'].clear_all()")
 PB.tick()
 check("no pc: no button", PB.state()["button"] is False)
 
@@ -383,7 +387,7 @@ check("label case follows the menu",
 
 # Left over from an earlier load of the mod: reused, not doubled.
 lua.execute("menu = make_menu({}); add_child(menu._box, new_obj('Button', 'APArchipelagoButton_9_9'))"
-            "; test_pc = new_obj('CrabPC', 'pc', {InGameMenuUI = menu})")
+            "; test_pc = new_obj('CrabPC', 'pc', {InGameMenuUI = menu}); package.loaded['AP/ObjCache'].clear_all()")
 PB.tick()
 st = PB.state()
 check("existing button reused", st["adopted"] is True and box_names().count("APArchipelago") == 1,
@@ -405,7 +409,7 @@ check("canvas layout: box untouched", "APArchipelago" not in box_names(), box_na
 PB.tick()
 check("gives up once", PB.state()["tries"] == 1, str(PB.state()["tries"]))
 
-lua.execute("menu = new_obj('WBP_InGameMenu_C', 'Empty'); test_pc = new_obj('CrabPC', 'pc', {InGameMenuUI = menu})")
+lua.execute("menu = new_obj('WBP_InGameMenu_C', 'Empty'); test_pc = new_obj('CrabPC', 'pc', {InGameMenuUI = menu}); package.loaded['AP/ObjCache'].clear_all()")
 for _ in range(3):
     PB.tick()
 st = PB.state()
@@ -416,7 +420,7 @@ for _ in range(10):
 check("menu without buttons: stops retrying", PB.state()["gave_up"] is not None)
 
 lua.execute("menu = make_menu({}); rawset(menu._box, '_no_add', true)"
-            "; test_pc = new_obj('CrabPC', 'pc', {InGameMenuUI = menu})")
+            "; test_pc = new_obj('CrabPC', 'pc', {InGameMenuUI = menu}); package.loaded['AP/ObjCache'].clear_all()")
 PB.tick()
 check("add failure is caught", PB.state()["button"] is False and PB.state()["gave_up"] is not None)
 

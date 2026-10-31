@@ -107,21 +107,20 @@ function M.pending_boosts() return ledger.boosts end
 -- Game access (replaceable)
 -------------------------------------------------------------
 
+local ObjCache = require("AP/ObjCache")
+
+-- Looked up once and remembered for a couple of seconds (the tick asks for these four times a second).
 local function first(class)
-    local ok, all = pcall(FindAllOf, class)
-    if not ok or type(all) ~= "table" then return nil end
-    for _, o in ipairs(all) do
-        if safe(function() return o:IsValid() end, false) then return o end
-    end
-    return nil
+    local get = ObjCache.first(class)
+    return get
 end
 
 local game = {}
 M.game = game
 
-function game.ps() return first("CrabPS") end
-function game.player() return first("CrabPlayerC") end
-function game.gs() return first("CrabGS") end
+game.ps = first("CrabPS")
+game.player = first("CrabPlayerC")
+game.gs = first("CrabGS")
 local function item_apply()
     local ok, m = pcall(require, "AP/ItemApply")
     return ok and m or nil

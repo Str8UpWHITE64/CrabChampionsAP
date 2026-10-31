@@ -659,6 +659,9 @@ local function sanitize_kind(ps, kind, list_prop, da_field, allowed_set, fallbac
   sanitize_and_merge(ps, kind, list_prop, da_field, allowed_set, fallback, fallback_fn)
 end
 
+-- The timer calls this every 2 s; the player states are remembered for a second instead of scanned for each time.
+local ps_list = require("AP/ObjCache").list("CrabPS", nil, 1)
+
 function M.sanitize_all_players()
   if not M.active then return end
 
@@ -666,7 +669,7 @@ function M.sanitize_all_players()
     refresh_maps()
   end
 
-  local pss = FindAllOf("CrabPS")
+  local pss = ps_list()
   if not pss then return end
 
   for _, ps in ipairs(pss) do

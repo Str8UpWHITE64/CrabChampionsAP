@@ -19,6 +19,8 @@ REPO = Path(__file__).resolve().parent.parent
 STATE = os.path.join(tempfile.mkdtemp(), "trap_state.txt").replace("\\", "/")
 
 lua = LuaRuntime(unpack_returned_tuples=True)
+lua.globals().OBJCACHE_SRC = (REPO / "CrabChampionsAP/Scripts/AP/ObjCache.lua").read_text(encoding="utf-8")
+lua.execute('package.preload["AP/ObjCache"] = load(OBJCACHE_SRC, "@AP/ObjCache.lua")')
 lua.execute("""
 print = function() end
 LoopAsync = function() end

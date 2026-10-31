@@ -14,6 +14,8 @@ from lupa import LuaRuntime
 REPO = Path(__file__).resolve().parent.parent
 
 lua = LuaRuntime(unpack_returned_tuples=True)
+lua.globals().OBJCACHE_SRC = (REPO / "CrabChampionsAP/Scripts/AP/ObjCache.lua").read_text(encoding="utf-8")
+lua.execute('package.preload["AP/ObjCache"] = load(OBJCACHE_SRC, "@AP/ObjCache.lua")')
 lua.execute("""
 print = function() end
 function mkwidget(name, vis, enabled, broken)
@@ -90,10 +92,16 @@ mod2 = lua.execute((REPO / "CrabChampionsAP/Scripts/AP/ModifierUnlock.lua").read
 lua.execute("FindAllOf_real = FindAllOf; FindAllOf = function(c) if c == 'CrabPC' then return {pc} end return FindAllOf_real(c) end")
 lua.execute("pc = mkpc(mkmenu('UI_DifficultyMenu_OLD_C /Engine/Transient.X'))")
 expect("focused difficulty menu is open", mod2.menu_open(), True)
-lua.execute("pc = mkpc(mkmenu('UI_InGameMenu_C /Engine/Transient.X'))")
+lua.execute("require('AP/ObjCache').clear_all(); pc = mkpc(mkmenu('UI_InGameMenu_C /Engine/Transient.X'))")
 expect("another menu is not", mod2.menu_open(), False)
-lua.execute("pc = mkpc(nil)")
+lua.execute("require('AP/ObjCache').clear_all(); pc = mkpc(nil)")
 expect("no menu is not", mod2.menu_open(), False)
+
+# the sweep runs in the lobby only
+lua.execute("pc = mkpc(mkmenu('UI_DifficultyMenu_OLD_C /Engine/Transient.X')); require('AP/ObjCache').clear_all()")
+mod2.in_lobby = lambda: False
+expect("not swept outside the lobby", mod2.tick(), 0)
+mod2.in_lobby = lambda: True
 
 # a menu that redraws the lock is unlocked again on the next poll
 lua.execute("locked.LockedDifficultyModifierOverlay.Visibility = 0; locked.DifficultyModifierButton.bIsEnabled = false")

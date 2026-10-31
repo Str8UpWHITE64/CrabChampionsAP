@@ -17,6 +17,8 @@ from lupa import LuaRuntime
 REPO = Path(__file__).resolve().parent.parent
 
 lua = LuaRuntime(unpack_returned_tuples=True)
+lua.globals().OBJCACHE_SRC = (REPO / "CrabChampionsAP/Scripts/AP/ObjCache.lua").read_text(encoding="utf-8")
+lua.execute('package.preload["AP/ObjCache"] = load(OBJCACHE_SRC, "@AP/ObjCache.lua")')
 lua.execute("""
 print = function() end
 function mkarr(t)

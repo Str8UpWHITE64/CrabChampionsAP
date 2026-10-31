@@ -9,6 +9,8 @@
 -- Locked overlay), so the sweep finds nothing to change. It stays so that a build which locks buttons again is
 -- handled without a client change.
 
+local ObjCache = require("AP/ObjCache")
+
 local M = {}
 
 local COLLAPSED = 1      -- ESlateVisibility::Collapsed
@@ -68,10 +70,11 @@ function M.sweep()
 end
 
 -- True only while the difficulty menu is the focused menu. Replaceable for tests.
+local pc_list = ObjCache.list("CrabPC", nil, 2)
+
 function M.menu_open()
     local ok, res = pcall(function()
-        local pcs = FindAllOf("CrabPC")
-        local pc = pcs and pcs[1]
+        local pc = pc_list()[1]
         if not alive(pc) then return false end
         local menu = pc.ActiveFocusMenuUI
         if not alive(menu) then return false end
@@ -89,9 +92,16 @@ function M.pause(seconds)
 end
 
 --- Poll step: sweeps only while the unlock is on, no level change is in progress and the difficulty menu is open.
+-- The difficulty menu is only in the lobby. Replaceable for tests.
+function M.in_lobby()
+    local ok, ia = pcall(require, "AP/ItemApply")
+    return not (ok and type(ia) == "table") or ia.in_lobby ~= false
+end
+
 function M.tick()
     if not active then return 0 end
     if os.clock() < pause_until then return 0 end
+    if not M.in_lobby() then return 0 end
     if not M.menu_open() then return 0 end
     return M.sweep()
 end

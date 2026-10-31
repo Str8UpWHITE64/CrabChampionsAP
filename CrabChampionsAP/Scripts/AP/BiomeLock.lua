@@ -73,29 +73,27 @@ end
 local game = {}
 M.game = game
 
-local function live_objects(class)
-    local ok, all = pcall(FindAllOf, class)
-    if not ok or type(all) ~= "table" then return {} end
-    local out = {}
-    for _, o in ipairs(all) do
-        if alive(o) then
-            local okn, name = pcall(function() return o:GetFullName() end)
-            if okn and type(name) == "string" and not name:find("Default__", 1, true) then
-                out[#out + 1] = o
-            end
-        end
-    end
-    return out
+-- Not a class default object. The lookups are remembered for a moment (ObjCache): the tick used to scan the
+-- game's whole object list several times every half second.
+local ObjCache = require("AP/ObjCache")
+
+local function live_accept(o)
+    local okn, name = pcall(function() return o:GetFullName() end)
+    return okn and type(name) == "string" and not name:find("Default__", 1, true)
 end
 
+local gs_list = ObjCache.list("CrabGS", live_accept, 2)
+local hud_list = ObjCache.list("CrabGameStateUI", live_accept, 1)
+local da_list = ObjCache.list("CrabBiomeDA", live_accept, 10)
+
 function game.gs()
-    return live_objects("CrabGS")[1]
+    return gs_list()[1]
 end
 
 --- The biome data assets as { real = <biome number>, da = <object> }, matched by asset name.
 function game.biome_assets()
     local out = {}
-    for _, da in ipairs(live_objects("CrabBiomeDA")) do
+    for _, da in ipairs(da_list()) do
         local ok, name = pcall(function() return da:GetFullName() end)
         local key = ok and type(name) == "string" and name:match("DA_Biome_(%a+)%.") or nil
         for real, n in ipairs(M.GAME_NAMES) do
@@ -107,7 +105,13 @@ end
 
 --- Live game-state HUD widgets (they own the BiomeText block).
 function game.hud_widgets()
-    return live_objects("CrabGameStateUI")
+    return hud_list()
+end
+
+--- Forget the remembered game objects (the level changed).
+function game.forget()
+    ObjCache.clear(gs_list)
+    ObjCache.clear(hud_list)
 end
 
 function game.get_text(block)
@@ -421,6 +425,7 @@ function M.install()
     for _, hook in ipairs({ "ClientOnClearedIsland", "ClientOnEnteredPortal" }) do
         pcall(function()
             RegisterHook("/Script/CrabChampions.CrabPC:" .. hook, function()
+                game.forget()
                 GameThread.after(300, run_tick)
             end)
         end)
