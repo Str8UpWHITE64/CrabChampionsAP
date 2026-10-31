@@ -29,6 +29,7 @@ package.loaded["AP/LocationData"] = {
 }
 -- fake world
 clock = 1792265000   -- a real-sized epoch value, so island-long effects are tested with the clocks the game uses
+island_unreadable = false
 world = { dead = false, lobby = false, island = 1, paused = false, crystals = 200, health = 100,
           boost_calls = 0, boost_pool = 5 }
 local function obj(addr, fields) fields.addr = addr; return fields end
@@ -47,7 +48,7 @@ return function(Traps, state_path)
     Traps.now = function() return clock end
     local g = Traps.game
     g.in_lobby = function() return world.lobby end
-    g.island = function() return world.island end
+    g.island = function() if island_unreadable then return nil end return world.island end
     g.paused = function() return world.paused end
     g.eliminated = function() return world.dead end
     g.ps = function() return world.ps end
@@ -382,6 +383,69 @@ expect("boost waits", Traps.pending_boosts(), 1)
 world.boost_pool = 1
 Traps.tick()
 expect("boost lands later", world.boost_calls, 1)
+
+# --- Slowdown hit while the island number is unreadable runs on the normal trap timer
+fresh()
+Traps.on_item(info("Slowdown Trap"), 0, ID)
+g.island_unreadable = True
+Traps.tick()
+g.clock += 11
+Traps.tick()
+expect("slow on, island unknown", world.cmc.MaxWalkSpeed, 600.0)
+g.clock += 29
+Traps.tick()
+expect("timer not yet", world.cmc.MaxWalkSpeed, 600.0)
+g.clock += 2
+Traps.tick()
+expect("timer ends slowdown", world.cmc.MaxWalkSpeed, 1000.0)
+g.island_unreadable = False
+
+# --- Slowdown twice: the second hit extends, never records the slowed speed as the original
+fresh()
+Traps.on_item(info("Slowdown Trap"), 0, ID)
+Traps.on_item(info("Slowdown Trap"), 1, ID)
+Traps.tick()
+g.clock += 4
+Traps.tick()
+expect("two slowdowns do not stack", world.cmc.MaxWalkSpeed, 600.0)
+world.island = 2
+Traps.tick()
+expect("two slowdowns restore the real speed", world.cmc.MaxWalkSpeed, 1000.0)
+
+# --- Slowdown, then run over / back to lobby: restored
+fresh()
+Traps.on_item(info("Slowdown Trap"), 0, ID)
+Traps.tick()
+world.dead = True
+Traps.tick()
+expect("death restores speed", world.cmc.MaxWalkSpeed, 1000.0)
+
+# --- mod reload mid-run: the slowdown is forgotten from memory but the file lets the next start undo it
+fresh()
+Traps.on_item(info("Slowdown Trap"), 0, ID)
+Traps.tick()
+expect("slow before reload", world.cmc.MaxWalkSpeed, 600.0)
+Traps._reset_for_test(None)          # reload: memory gone, file stays
+Traps.tick()
+expect("reload recovers speed", world.cmc.MaxWalkSpeed, 1000.0)
+# a reload with a different object at that address / a changed value leaves it alone
+fresh()
+Traps.on_item(info("Slowdown Trap"), 0, ID)
+Traps.tick()
+Traps._reset_for_test(None)
+world.cmc.MaxWalkSpeed = 800.0       # the game set something else
+Traps.tick()
+expect("reload leaves a changed speed alone", world.cmc.MaxWalkSpeed, 800.0)
+# after a normal end nothing stale is recovered
+fresh()
+Traps.on_item(info("Slowdown Trap"), 0, ID)
+Traps.tick()
+world.island = 2
+Traps.tick()
+Traps._reset_for_test(None)
+world.cmc.MaxWalkSpeed = 600.0
+Traps.tick()
+expect("ended effect not recovered again", world.cmc.MaxWalkSpeed, 600.0)
 
 if problems:
     print("FAILED", file=sys.stderr)

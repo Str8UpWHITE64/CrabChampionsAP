@@ -61,6 +61,15 @@ local function save_ledger()
         f:write("last=" .. tostring(ledger.last) .. "\n")
         f:write("boosts=" .. tostring(ledger.boosts) .. "\n")
         f:write("traps=" .. table.concat(ledger.traps, ",") .. "\n")
+        -- Running effects, so a mod reload or crash mid-run can still undo them (see recover_effects).
+        for _, e in pairs(active) do
+            for _, op in ipairs(e.applied or {}) do
+                if op.addr ~= nil and op.base and op.written then
+                    f:write("fx=" .. table.concat({ e.name, op.target, op.prop, tostring(op.addr),
+                        string.format("%.9g", op.base), string.format("%.9g", op.written) }, "~") .. "\n")
+                end
+            end
+        end
         f:close()
     end)
     if not ok and not state_dirty_warned then
@@ -316,7 +325,50 @@ local function end_effect(kind, why)
     enforce_ops(e.applied)
     undo_ops(e.applied)
     active[kind] = nil
-    log("Trap over (" .. why .. "): " .. e.name)
+    save_ledger()
+    local note = ""
+    for _, op in ipairs(e.applied) do
+        local _, cur = read_op(op)
+        note = note .. " " .. op.prop .. "=" .. tostring(cur) .. " (was " .. string.format("%.4g", op.base) .. ")"
+    end
+    log("Trap over (" .. why .. "): " .. e.name .. note)
+end
+
+--- After a mod reload or crash, effects that were running are forgotten but the game objects keep the changed
+--- values. The ledger file lists them: put back the original wherever the live value is still the one written.
+local recovered = false
+local function recover_effects()
+    if recovered or not game.player() then return end
+    recovered = true
+    local ok, text = pcall(function()
+        local f = io.open(M.STATE_PATH, "r")
+        if not f then return nil end
+        local t = f:read("*a")
+        f:close()
+        return t
+    end)
+    if not ok or not text or not text:find("fx=", 1, true) then return end
+    for line in text:gmatch("fx=([^\n]*)") do
+        local name, target, prop, addr, base, written = line:match("^(.-)~(.-)~(.-)~(.-)~(.-)~(.-)$")
+        base, written = tonumber(base), tonumber(written)
+        if name and base and written then
+            local op = { target = target, prop = prop }
+            local obj, cur = read_op(op)
+            if obj and cur and tostring(game.addr(obj)) == addr and close(cur, written) then
+                game.set(obj, prop, base)
+                log("Recovered " .. name .. " left over from before a reload: " .. prop .. " back to " .. tostring(base))
+            end
+        end
+    end
+    -- drop the fx lines from the file, keep the rest
+    pcall(function()
+        local kept = {}
+        for l in text:gmatch("[^\n]+") do
+            if l:sub(1, 3) ~= "fx=" then kept[#kept + 1] = l end
+        end
+        local f = io.open(M.STATE_PATH, "w")
+        if f then f:write(table.concat(kept, "\n") .. "\n"); f:close() end
+    end)
 end
 
 local function end_all(why)
@@ -331,28 +383,37 @@ function M.active_names()
     return out
 end
 
+-- Slowdown lasts for its island; if the island can't be read it runs on the normal trap timer instead, so it can
+-- never become permanent. The rest always run on the timer.
+local function timed_expiry(kind, island, now)
+    if kind == "speed" and island then return math.huge end
+    return now + (LocationData.trap_duration or 30)
+end
+
 local function start_timed(name)
     local kind = KIND_OF[name]
     local now = M.now()
     local ex = active[kind]
     if ex and ex.name == name then
         -- the same trap again: extend it
-        ex.expires = (kind == "speed") and math.huge or (now + (LocationData.trap_duration or 30))
-        ex.island = game.island()
+        ex.island = (kind == "speed") and (game.island() or run.island) or nil
+        ex.expires = timed_expiry(kind, ex.island, now)
         log("Trap extended: " .. name)
         return
     end
     if ex then end_effect(kind, "replaced") end
     local ops = ops_for(name)
     if not ops then return end
+    local island = (kind == "speed") and (game.island() or run.island) or nil
     local applied = apply_ops(ops)
     if #applied == 0 then log("Trap had nothing to act on: " .. name) end
     active[kind] = {
         name = name, applied = applied,
         -- Slowdown lasts for the island it hits on; the rest run on a timer.
-        expires = (kind == "speed") and math.huge or (now + (LocationData.trap_duration or 30)),
-        island = (kind == "speed") and game.island() or nil,
+        expires = timed_expiry(kind, island, now),
+        island = island,
     }
+    save_ledger()
     log("Trap hit: " .. name .. " (" .. #applied .. " change(s))")
 end
 
@@ -434,6 +495,7 @@ local function try_boost()
 end
 
 function M.tick()
+    recover_effects()
     local now = M.now()
     local lobby = game.in_lobby()
 
@@ -504,6 +566,7 @@ function M._reset_for_test(identity)
     ledger = { identity = identity, last = -1, boosts = 0, traps = {} }
     run = { island = nil, island_since = nil, last_hit = 0 }
     active = {}
+    recovered = false
 end
 
 return M
