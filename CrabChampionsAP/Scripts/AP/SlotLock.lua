@@ -112,7 +112,12 @@ function M.install()
                     pcall(function()
                         local pss = FindAllOf("CrabPS")
                         if pss and #pss > 0 then
-                            pss[1].Crystals = pre_purchase_crystals
+                            local ia_ok, ItemApply = pcall(require, "AP/ItemApply")
+                            if ia_ok and ItemApply and ItemApply.write_crystals then
+                                ItemApply.write_crystals(pss[1], pre_purchase_crystals)
+                            else
+                                pss[1].Crystals = pre_purchase_crystals
+                            end
                         end
                     end)
                     log("Blocked " .. slot_type .. " purchase — reverted to " .. target .. " slots, crystals refunded")

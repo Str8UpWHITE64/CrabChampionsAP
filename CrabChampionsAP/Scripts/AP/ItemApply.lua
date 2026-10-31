@@ -165,7 +165,7 @@ function M.reset(opts)
         pcall(function()
             local pss = FindAllOf("CrabPS")
             if pss and #pss > 0 then
-                pss[1].Crystals = 0
+                M.write_crystals(pss[1], 0)
             end
         end)
     elseif in_lobby then
@@ -1096,6 +1096,13 @@ end
 -- Grant crystals
 -------------------------------------------------------------
 
+--- Set the crystal count and tell the game, so the HUD number follows. A plain
+--- property write skips the replication notify that refreshes the HUD.
+function M.write_crystals(ps, amount)
+    ps.Crystals = amount
+    pcall(function() ps:OnRep_Crystals() end)
+end
+
 function M._grant_crystals(amount)
     local ps = M._get_ps()
     if not ps then
@@ -1104,7 +1111,7 @@ function M._grant_crystals(amount)
     end
     local ok, err = pcall(function()
         local current = ps.Crystals or 0
-        ps.Crystals = current + amount
+        M.write_crystals(ps, current + amount)
     end)
     if ok then
         log("Granted " .. amount .. " crystals")

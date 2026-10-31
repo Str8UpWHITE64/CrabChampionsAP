@@ -182,6 +182,10 @@ function game.crystals() local ps = game.ps(); return ps and game.get(ps, "Cryst
 function game.set_crystals(n)
     local ps = game.ps()
     if not ps then return false end
+    local ia = item_apply()
+    if ia and ia.write_crystals then
+        return pcall(ia.write_crystals, ps, n)
+    end
     return game.set(ps, "Crystals", n)
 end
 
