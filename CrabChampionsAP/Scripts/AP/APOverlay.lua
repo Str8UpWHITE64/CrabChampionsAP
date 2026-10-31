@@ -72,6 +72,9 @@ local overlay = {
     error_text = nil,    -- plain-words reason the last connect failed
     info_text = nil,     -- slot, seed, counts while connected
 
+    -- Biome access (biome lock seeds)
+    biome_access_text = nil,
+
     -- Equipment progress
     equip_weapons_text = nil,
     equip_melee_text = nil,
@@ -139,6 +142,7 @@ local function is_alive()
         overlay.close_btn = nil
         overlay.error_text = nil
         overlay.info_text = nil
+        overlay.biome_access_text = nil
         overlay.equip_weapons_text = nil
         overlay.equip_melee_text = nil
         overlay.equip_abilities_text = nil
@@ -461,6 +465,12 @@ function APOverlay.create(ap_config)
     -- =================================================================
     -- Equipment Progress section
     -- =================================================================
+    overlay.biome_access_text = make_text(overlay.conn_vbox, "APBiomeAccess",
+        "", 12, { 0.7, 0.9, 0.7, 1 })
+    if overlay.biome_access_text then
+        overlay.conn_vbox:AddChildToVerticalBox(overlay.biome_access_text)
+    end
+
     local equip_heading = make_text(overlay.conn_vbox, "APEquipHeading",
         "Equipment Progress", 16, { 0.4, 0.8, 1, 1 })
     if equip_heading then overlay.conn_vbox:AddChildToVerticalBox(equip_heading) end
@@ -730,6 +740,7 @@ local info_provider = nil
 --- Reset everything that belongs to a connection: checklist, victory line and message log.
 function APOverlay.clear_progress()
     item_log_lines = {}
+    put("biome_access_text", "")
     put("equip_weapons_text", "(connect to see weapons)")
     put("equip_melee_text", "")
     put("equip_abilities_text", "")
@@ -978,7 +989,31 @@ function APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, 
         else
             marker = "[-]"
         end
-        return "  " .. marker .. " " .. name, got, completed
+        local suffix = ""
+        if LocationData.biome_layout and APClient and APClient.is_location_checked and loc_id_fn then
+            local cleared = LocationData.equipment_biomes_cleared(loc_id_fn, name, req_rank,
+                function(id) return APClient:is_location_checked(id) == true end)
+            local names = {}
+            for biome, label in ipairs(LocationData.BIOME_LABELS) do
+                if cleared[biome] then names[#names + 1] = label end
+            end
+            suffix = " - " .. #names .. "/4 biomes"
+            if #names > 0 then suffix = suffix .. " (" .. table.concat(names, ", ") .. ")" end
+        end
+        return "  " .. marker .. " " .. name .. suffix, got, completed
+    end
+
+    -- Biomes the player can enter (biome lock seeds only; otherwise every biome is open)
+    local okb, BiomeLock = pcall(require, "AP/BiomeLock")
+    if okb and BiomeLock and BiomeLock.is_active() then
+        local open = {}
+        for real, label in ipairs(BiomeLock.NAMES) do
+            if BiomeLock.is_owned(real) then open[#open + 1] = label end
+        end
+        put("biome_access_text", "Biomes unlocked (" .. #open .. "/" .. #BiomeLock.NAMES .. "): "
+            .. table.concat(open, ", "))
+    else
+        put("biome_access_text", "")
     end
 
     -- Build weapons checklist

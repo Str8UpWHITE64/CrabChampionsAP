@@ -707,6 +707,7 @@ function M.check_index(island_num, biome)
 end
 
 local BIOME_LABELS = { "Tropical", "Ice", "Desert", "Volcano" }
+M.BIOME_LABELS = BIOME_LABELS
 
 --- Name of a biome-layout island check, as the apworld calls it: "Complete Tropical Island 3",
 --- "Reach Ice Shop (Loop 2)". Used for log lines.
@@ -720,6 +721,21 @@ function M.check_name(idx)
     local slot = rest % M.BIOME_LENGTH + 1
     local base = (slot == 6) and ("Reach " .. biome .. " Shop") or ("Complete " .. biome .. " Island " .. slot)
     return base .. (loop > 0 and " (Loop 2)" or "")
+end
+
+--- Biome layout: which biomes an equipment has cleared. A biome counts when the check for its last island (the
+--- 7th) with this equipment, at the given rank, has been made. `loc_id_fn` is one of the *_run_location_id_by_name
+--- functions and `is_checked` takes a location ID. Returns { [biome 1-4] = bool }, empty in other layouts.
+---@param rank number 0-based rank the goal asks for
+function M.equipment_biomes_cleared(loc_id_fn, name, rank, is_checked)
+    local out = {}
+    if not M.biome_layout then return out end
+    for biome = 1, 4 do
+        local idx = M.check_index(biome * M.BIOME_LENGTH, biome)
+        local id = idx and loc_id_fn(idx, name, M.tier_rank(rank))
+        out[biome] = id ~= nil and is_checked(id) == true
+    end
+    return out
 end
 
 -- Biome layout: "Complete Run with <item> on <Rank>", sent on the run's final island in whatever biome it is.

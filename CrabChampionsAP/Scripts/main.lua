@@ -102,7 +102,8 @@ local function on_item(it)
     if APOverlay then
         if info and (info.cat == ItemData.CATEGORY.WEAPON
                   or info.cat == ItemData.CATEGORY.MELEE
-                  or info.cat == ItemData.CATEGORY.ABILITY) then
+                  or info.cat == ItemData.CATEGORY.ABILITY
+                  or (biome_ok and biome_handled)) then
             APOverlay.update_equipment_progress(LocationData, ItemApply, ItemData, APClient)
         end
     end
@@ -521,7 +522,10 @@ local function on_location_checked(location_ids)
         local region = math.floor((loc_id - LocationData.BASE_ID) / LocationData.TABLE_OFFSET)
         if region == LocationData.REGION.weapon_run
            or region == LocationData.REGION.melee_run
-           or region == LocationData.REGION.ability_run then
+           or region == LocationData.REGION.ability_run
+           or region == LocationData.BIOME_REGION.weapon_run
+           or region == LocationData.BIOME_REGION.melee_run
+           or region == LocationData.BIOME_REGION.ability_run then
             saw_equipment_run = true
         end
     end
