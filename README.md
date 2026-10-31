@@ -11,8 +11,10 @@ This mod lets you play Crab Champions as part of an Archipelago multiworld sessi
 - **Equipment Randomization** — Weapons, melee weapons, and abilities are locked behind the multiworld item pool. You unlock them as other players find your items.
 - **Location Checks** — Completing islands, finishing runs at specific ranks, and using specific equipment all count as checks that send items to other players.
 - **Ranked Difficulty Tiers** — Supports all 8 difficulty ranks from Bronze through Prismatic, with configurable check ranges. Bronze has no checks of its own, since every clear is at least Bronze: the plain checks are the Bronze checks.
-- **Cascade Mode** — Completing an island at a higher rank can automatically count for all lower ranks.
-- **Biome Lock** — Runs can only enter biomes you own the Access item for, and start in the biome you choose.
+- **Higher Ranks Count for Lower Ones** — Completing an island at a higher rank also counts for all lower ranks.
+- **Biome Lock** — Runs can only enter biomes you own the Access item for, and start in the biome you choose. A biome check layout gives every biome its own checks.
+- **Traps and Perk Boosts** — Optional filler items that make a run harder for a short time, or raise a perk you hold.
+- **In-game Archipelago Window** — An Archipelago button in the pause menu opens a window to connect and to follow your goal, biomes and equipment.
 - **Death Link** — Optional synchronized death across all connected players.
 - **Configurable Item Pool** — Control how many weapons/melee/abilities are in the pool, what filler items look like, and more.
 
@@ -198,6 +200,8 @@ Your runs can only enter biomes you own the **Access** item for: Tropical Access
 
 Turn it off to play the game's normal biome order, with no Access items.
 
+With the biome `check_layout`, a run only counts toward the goal when it cleared islands in all four biomes. The run-level checks ("Complete Run with ...") and the goal's weapon, melee and ability counts wait for such a run, and Victory needs every Access item. Reaching island 28 inside fewer biomes still sends the plain island checks. The island-number layout and older worlds are unchanged.
+
 #### `starting_biome` (Default: random)
 Which biome your runs start in when `biome_lock` is on: tropical, ice, desert, volcano or random. You own its Access item from the start. The biome name on the screen shows the biome you are really in.
 
@@ -381,7 +385,7 @@ With the maximum settings selected, there are about 16,900 possible checks.
 
 
 ## Bugs
-- None so far!  Report any issues you find in the Discord thread or on GitHub.
+- None known.  Report any issues you find in the Discord thread or on GitHub.
 
 ## Building a release
 

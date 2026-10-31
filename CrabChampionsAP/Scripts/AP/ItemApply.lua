@@ -685,7 +685,7 @@ end
 -------------------------------------------------------------
 
 --- Starting and biome percentages for this slot. 100 / 0 when not connected
---- or on seeds from before 1.5, which gives the old everything-each-run.
+--- or on seeds from before 2.0, which gives the old everything-each-run.
 local function draw_percentages()
     local ok, LocationData = pcall(require, "AP/LocationData")
     if not ok or not LocationData then return 100, 0 end

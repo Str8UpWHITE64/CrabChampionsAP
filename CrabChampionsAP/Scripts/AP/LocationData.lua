@@ -132,7 +132,7 @@ M.weapons_for_completion = 1
 M.pool_only_completion = false
 
 -- Share of received perks/mods/relics given at the start of a run and at each
--- new biome. Seeds without these options get everything, as before 1.5.
+-- new biome. Seeds without these options get everything, as before 2.0.
 M.starting_item_percentage = 100
 M.biome_item_percentage = 0
 

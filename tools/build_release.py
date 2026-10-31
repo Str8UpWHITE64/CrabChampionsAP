@@ -23,7 +23,7 @@ Zip layout:
             CrabChampionsAP/
 
     python tools/build_release.py
-    python tools/build_release.py --ref v1.5.0 --version 1.5.0
+    python tools/build_release.py --ref 2.0.0 --version 2.0.0
 """
 
 from __future__ import annotations
